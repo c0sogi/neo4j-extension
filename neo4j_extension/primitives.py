@@ -215,7 +215,7 @@ class Neo4jList(Neo4jType[PyList[Neo4jType]]):
 
     @classmethod
     def from_cypher(cls, cypher_str: str) -> Neo4jList:
-        from .conversion import convert_cystr_to_cytype
+        from .conversion import convert_cypher_to_neo4j
 
         m = LIST_REGEX.match(cypher_str)
         if not m:
@@ -227,7 +227,7 @@ class Neo4jList(Neo4jType[PyList[Neo4jType]]):
         tokens = _tokenize_cypher_expression(inner)
         elements_str_list = _split_by_comma_top_level(tokens)
         parsed_elems = [
-            convert_cystr_to_cytype(elem_str)
+            convert_cypher_to_neo4j(elem_str)
             for elem_str in elements_str_list
         ]
         return cls(parsed_elems)
@@ -285,7 +285,7 @@ class Neo4jMap(Neo4jType[PyDict[str, Neo4jType]]):
 
     @classmethod
     def from_cypher(cls, cypher_str: str) -> Neo4jMap:
-        from .conversion import convert_cystr_to_cytype
+        from .conversion import convert_cypher_to_neo4j
 
         m = MAP_REGEX.match(cypher_str)
         if not m:
@@ -318,7 +318,7 @@ class Neo4jMap(Neo4jType[PyDict[str, Neo4jType]]):
                 key = key_val.value
 
             val_str = "".join(val_tokens).strip()
-            val_obj = convert_cystr_to_cytype(val_str)
+            val_obj = convert_cypher_to_neo4j(val_str)
 
             result[key] = val_obj
 

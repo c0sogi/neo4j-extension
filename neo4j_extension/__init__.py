@@ -1,13 +1,13 @@
 from .abc import Neo4jType
+from .connection import Neo4jConnection, with_async_session, with_session
 from .conversion import (
     PythonType,
-    convert_cystr_to_cytype,
-    cypher_value_to_python,
-    ensure_cypher_type,
-    entity_properties_to_dict,
+    convert_cypher_to_neo4j,
+    convert_neo4j_to_python,
+    ensure_neo4j_type,
     get_neo4j_property_type_name,
 )
-from .core import (
+from .primitives import (
     Neo4jBoolean,
     Neo4jByteArray,
     Neo4jFloat,
@@ -51,9 +51,11 @@ __all__ = [
     "Node",
     "Relationship",
     "PythonType",
-    "cypher_value_to_python",
-    "ensure_cypher_type",
-    "entity_properties_to_dict",
+    "convert_neo4j_to_python",
+    "ensure_neo4j_type",
     "get_neo4j_property_type_name",
-    "convert_cystr_to_cytype",
+    "convert_cypher_to_neo4j",
+    "Neo4jConnection",
+    "with_session",
+    "with_async_session",
 ]

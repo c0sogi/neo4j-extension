@@ -1,4 +1,4 @@
-# neo4j_extension
+# neo4j-extension
 
 A Python library that provides higher-level abstractions and utilities for working with [Neo4j](https://neo4j.com/) databases. It wraps the official Neo4j Python driver to simplify both synchronous and asynchronous operations, offers object-like handling of Nodes and Relationships, and includes a system for dealing with Neo4j types (dates, times, durations, spatial data, etc.) in a Pythonic way.
 
@@ -217,7 +217,7 @@ This library defines an extensive set of classes to represent Neo4j data types i
 - **Temporal**: `Neo4jDate`, `Neo4jLocalTime`, `Neo4jLocalDateTime`, `Neo4jZonedTime`, `Neo4jZonedDateTime`, `Neo4jDuration`
 - **Binary**: `Neo4jByteArray`
 
-You can convert a Cypher expression string to a `Neo4jType` using `convert_cystr_to_cytype(expr)`, and convert between Python native values and `Neo4jType` via `ensure_cypher_type(value)` or `cypher_value_to_python(value)`.
+You can convert a Cypher expression string to a `Neo4jType` using `convert_cypher_to_neo4j(expr)`, and convert between Python native values and `Neo4jType` via `ensure_neo4j_type(value)` or `convert_neo4j_to_python(value)`.
 
 ---
 

@@ -4,7 +4,7 @@ from typing import Any
 
 from neo4j import ManagedTransaction, Result
 
-from neo4j_extension import Node, cypher_value_to_python, ensure_cypher_type
+from neo4j_extension import Node, convert_neo4j_to_python, ensure_neo4j_type
 from neo4j_extension.connection import Neo4jConnection, with_session
 from neo4j_extension.conversion import PythonType
 
@@ -121,9 +121,9 @@ class TestPersonOperations(unittest.TestCase):
         }
 
         for prop_val in properties.values():
-            cypher_type = ensure_cypher_type(prop_val)
+            cypher_type = ensure_neo4j_type(prop_val)
             cypher: str = cypher_type.to_cypher()
-            parsed = cypher_value_to_python(cypher_type.from_cypher(cypher))
+            parsed = convert_neo4j_to_python(cypher_type.from_cypher(cypher))
             self.assertEqual(parsed, prop_val)
 
         # Node 생성 시: 파이썬 기본 타입 섞어서 넘기기

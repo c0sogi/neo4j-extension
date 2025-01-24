@@ -35,7 +35,6 @@ from neo4j import (
 )
 
 from ._utils import _escape_identifier
-from .conversion import entity_properties_to_dict
 from .graph import Graph, Node, Relationship
 
 if TYPE_CHECKING:
@@ -562,12 +561,6 @@ class Neo4jConnection:
             else "NoLabel"
         )
 
-        new_props = entity_properties_to_dict(
-            node.properties,
-            keep_element_id=True,  # node.element_id도 property에 저장
-            element_id_val=node.element_id,
-        )
-
         query = f"""
         MERGE (n:{label_str} {{element_id: $element_id}})
         SET n = $props
@@ -576,7 +569,10 @@ class Neo4jConnection:
         result = tx.run(
             query,
             element_id=node.element_id,
-            props=new_props,
+            props=node.to_python_map(
+                keep_element_id=True,  # node.element_id도 property에 저장
+                element_id_val=node.element_id,
+            ),
         ).single()
         return result["n"] if result else {}
 
@@ -590,12 +586,6 @@ class Neo4jConnection:
         """
         self._do_upsert_node(tx, relationship.start_node)
         self._do_upsert_node(tx, relationship.end_node)
-
-        new_props = entity_properties_to_dict(
-            relationship.properties,
-            keep_element_id=True,
-            element_id_val=relationship.element_id,
-        )
 
         start_labels = (
             ":".join(
@@ -626,7 +616,10 @@ class Neo4jConnection:
             startId=relationship.start_node.element_id,
             endId=relationship.end_node.element_id,
             relId=relationship.element_id,
-            props=new_props,
+            props=relationship.to_python_map(
+                keep_element_id=True,
+                element_id_val=relationship.element_id,
+            ),
         ).single()
         return result["r"] if result else {}
 

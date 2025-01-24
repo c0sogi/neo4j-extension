@@ -6,8 +6,12 @@ from typing import Mapping, Optional, Set, Union
 
 from ._utils import _escape_identifier
 from .abc import Neo4jType
-from .conversion import PythonType, ensure_cypher_type
-from .core import Neo4jList
+from .conversion import (
+    PythonType,
+    convert_neo4j_to_python,
+    ensure_neo4j_type,
+)
+from .primitives import Neo4jList
 
 
 class Entity:
@@ -20,10 +24,26 @@ class Entity:
         properties: Mapping[str, Union[Neo4jType, PythonType]],
     ) -> None:
         self.element_id = element_id
-        # ensure_cypher_type
         self.properties = {
-            k: ensure_cypher_type(v) for k, v in properties.items()
+            k: ensure_neo4j_type(v) for k, v in properties.items()
         }
+
+    def to_python_map(
+        self,
+        keep_element_id: bool = False,
+        element_id_val: Optional[str] = None,
+    ) -> dict[str, PythonType]:
+        """
+        Convert properties to Python basic types(dict).
+        If keep_element_id is True, element_id is also stored.
+        If element_id_val is not None, it is used as the value of element_id.
+        """
+        result: dict[str, PythonType] = {}
+        for k, v in self.properties.items():
+            result[k] = convert_neo4j_to_python(v)
+        if keep_element_id and element_id_val is not None:
+            result["element_id"] = element_id_val
+        return result
 
     def to_cypher_map(self) -> str:
         pairs: PyList[str] = []

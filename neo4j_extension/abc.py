@@ -33,6 +33,9 @@ class Neo4jType(ABC, Generic[T]):
     def __repr__(self) -> str:
         return self.to_cypher()
 
+    def __str__(self) -> str:
+        return str(self.value)
+
     def __eq__(self, other: object) -> bool:
         return isinstance(other, self.__class__) and self.value == getattr(
             other, "value", None

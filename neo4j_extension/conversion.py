@@ -1,10 +1,10 @@
 from datetime import date, datetime, time, timedelta
 from typing import Dict as PyDict
 from typing import List as PyList
-from typing import Optional, Union
+from typing import Union
 
 from .abc import Neo4jType
-from .core import (
+from .primitives import (
     Neo4jBoolean,
     Neo4jByteArray,
     Neo4jFloat,
@@ -26,7 +26,6 @@ from .temporal import (
     Neo4jZonedTime,
 )
 
-
 PythonType = Union[
     Union[
         None,
@@ -45,9 +44,9 @@ PythonType = Union[
 ]
 
 
-def convert_cystr_to_cytype(expr: str) -> Neo4jType:
+def convert_cypher_to_neo4j(expr: str) -> Neo4jType:
     """
-    임의의 Neo4j 리터럴/표현식을 파싱해 대응하는 Neo4jType 객체로 변환.
+    Convert a Cypher expression to a Neo4jType object.
     """
 
     expr_strip = expr.strip().lower()
@@ -117,10 +116,36 @@ def convert_cystr_to_cytype(expr: str) -> Neo4jType:
     )
 
 
-def ensure_cypher_type(value: Union[Neo4jType, PythonType]) -> Neo4jType:
+def convert_neo4j_to_python(value: Neo4jType) -> PythonType:
     """
-    '이미 Neo4jType'이면 그대로 반환,
-    그렇지 않다면 파이썬 기본 타입 등을 적절한 Neo4jType으로 변환.
+    Convert a Neo4jType object to a Python basic type.
+    """
+
+    # null
+    if isinstance(value, Neo4jNull):
+        return None
+
+    # list
+    if isinstance(value, Neo4jList):
+        return [convert_neo4j_to_python(v) for v in value.value]
+
+    # map
+    if isinstance(value, Neo4jMap):
+        py_map = {}
+        for k, v in value.value.items():
+            py_map[k] = convert_neo4j_to_python(v)
+        return py_map
+
+    # 나머지는 .value 직접 반환
+    return value.value
+
+
+def ensure_neo4j_type(value: Union[Neo4jType, PythonType]) -> Neo4jType:
+    """
+    Assert that the given value is a Neo4jType.
+
+    If the value is already a Neo4jType, it is returned as is.
+    If the value is a Python basic type, it is converted to a Neo4jType.
     """
 
     if isinstance(value, Neo4jType):
@@ -157,7 +182,7 @@ def ensure_cypher_type(value: Union[Neo4jType, PythonType]) -> Neo4jType:
 
     # list -> Neo4jList (재귀 변환)
     if isinstance(value, list):
-        converted = [ensure_cypher_type(v) for v in value]
+        converted = [ensure_neo4j_type(v) for v in value]
         return Neo4jList(converted)
 
     # dict -> Neo4jMap (재귀 변환)
@@ -167,10 +192,10 @@ def ensure_cypher_type(value: Union[Neo4jType, PythonType]) -> Neo4jType:
             # key는 문자열이어야
             if not isinstance(k, str):
                 raise TypeError(f"Map key must be str, got {k}")
-            conv_map[k] = ensure_cypher_type(v)
+            conv_map[k] = ensure_neo4j_type(v)
         return Neo4jMap(conv_map)
 
-    raise TypeError(f"[ensure_cypher_type] 변환 불가한 값: {repr(value)}")
+    raise TypeError(f"[ensure_neo4j_type] 변환 불가한 값: {repr(value)}")
 
 
 def get_neo4j_property_type_name(val: Neo4jType) -> str:
@@ -207,44 +232,3 @@ def get_neo4j_property_type_name(val: Neo4jType) -> str:
         return "list"
     # 그 밖은 property로 저장 불가 (MAP도 마찬가지로 직접 저장 X)
     return "other"
-
-
-def cypher_value_to_python(value: Neo4jType) -> PythonType:
-    """
-    Neo4jType -> Python 기본 타입(또는 재귀 구조)으로 변환.
-    """
-
-    # null
-    if isinstance(value, Neo4jNull):
-        return None
-
-    # list
-    if isinstance(value, Neo4jList):
-        return [cypher_value_to_python(v) for v in value.value]
-
-    # map
-    if isinstance(value, Neo4jMap):
-        py_map = {}
-        for k, v in value.value.items():
-            py_map[k] = cypher_value_to_python(v)
-        return py_map
-
-    # 나머지는 .value 직접 반환
-    return value.value
-
-
-def entity_properties_to_dict(
-    entity_props: dict[str, Neo4jType],
-    keep_element_id: bool = False,
-    element_id_val: Optional[str] = None,
-) -> dict[str, PythonType]:
-    """
-    Node/Relationship의 properties(Neo4jType dict)를 모두 Python 기본값(dict)으로 변환.
-    keep_element_id가 True면, element_id도 함께 store
-    """
-    result: dict[str, PythonType] = {}
-    for k, v in entity_props.items():
-        result[k] = cypher_value_to_python(v)
-    if keep_element_id and element_id_val is not None:
-        result["element_id"] = element_id_val
-    return result
