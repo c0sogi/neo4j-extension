@@ -53,10 +53,8 @@ A Python library that provides higher-level abstractions and utilities for worki
 # If you're adding this repository directly:
 git clone https://github.com/c0sogi/neo4j-extension.git
 cd neo4j_extension
-pip install -r requirements.txt
-
-# Or install in editable mode:
-pip install -e .
+pip install uv
+uv sync
 ```
 
 > **Note**: This library requires the official `neo4j` Python driver. If that is not included in your environment, make sure to install it:
