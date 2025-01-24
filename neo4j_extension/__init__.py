@@ -6,6 +6,7 @@ from .conversion import (
     convert_neo4j_to_python,
     ensure_neo4j_type,
     get_neo4j_property_type_name,
+    convert_python_to_neo4j,
 )
 from .primitives import (
     Neo4jBoolean,
@@ -55,6 +56,7 @@ __all__ = [
     "ensure_neo4j_type",
     "get_neo4j_property_type_name",
     "convert_cypher_to_neo4j",
+    "convert_python_to_neo4j",
     "Neo4jConnection",
     "with_session",
     "with_async_session",

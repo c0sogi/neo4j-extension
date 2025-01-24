@@ -140,17 +140,7 @@ def convert_neo4j_to_python(value: Neo4jType) -> PythonType:
     return value.value
 
 
-def ensure_neo4j_type(value: Union[Neo4jType, PythonType]) -> Neo4jType:
-    """
-    Assert that the given value is a Neo4jType.
-
-    If the value is already a Neo4jType, it is returned as is.
-    If the value is a Python basic type, it is converted to a Neo4jType.
-    """
-
-    if isinstance(value, Neo4jType):
-        return value
-
+def convert_python_to_neo4j(value: PythonType) -> Neo4jType:
     if value is None:
         return Neo4jNull()
     if isinstance(value, bool):
@@ -196,6 +186,19 @@ def ensure_neo4j_type(value: Union[Neo4jType, PythonType]) -> Neo4jType:
         return Neo4jMap(conv_map)
 
     raise TypeError(f"[ensure_neo4j_type] 변환 불가한 값: {repr(value)}")
+
+
+def ensure_neo4j_type(value: Union[Neo4jType, PythonType]) -> Neo4jType:
+    """
+    Assert that the given value is a Neo4jType.
+
+    If the value is already a Neo4jType, it is returned as is.
+    If the value is a Python basic type, it is converted to a Neo4jType.
+    """
+
+    if isinstance(value, Neo4jType):
+        return value
+    return convert_python_to_neo4j(value)
 
 
 def get_neo4j_property_type_name(val: Neo4jType) -> str:

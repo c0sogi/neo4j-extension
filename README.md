@@ -87,9 +87,9 @@ conn.clear_all()
 
 # Create some nodes and relationships
 graph = Graph()
-node1 = Node(element_id="1", properties={"name": "Alice", "age": 30}, labels={"Person"})
-node2 = Node(element_id="2", properties={"name": "Bob", "age": 25}, labels={"Person"})
-rel = Relationship(element_id="3", properties={"since": 2020}, rel_type="KNOWS", start_node=node1, end_node=node2)
+node1 = Node(uniqueId="1", properties={"name": "Alice", "age": 30}, labels={"Person"})
+node2 = Node(uniqueId="2", properties={"name": "Bob", "age": 25}, labels={"Person"})
+rel = Relationship(uniqueId="3", properties={"since": 2020}, rel_type="KNOWS", start_node=node1, end_node=node2)
 
 graph.add_node(node1)
 graph.add_node(node2)
@@ -148,10 +148,10 @@ from neo4j_extension.graph import Node, Relationship, Graph
 # Build up a small graph in Python
 graph = Graph()
 
-node_alice = Node(element_id="1", properties={"name": "Alice"}, labels={"Person"})
-node_bob   = Node(element_id="2", properties={"name": "Bob"},   labels={"Person"})
+node_alice = Node(uniqueId="1", properties={"name": "Alice"}, labels={"Person"})
+node_bob   = Node(uniqueId="2", properties={"name": "Bob"},   labels={"Person"})
 relation   = Relationship(
-    element_id="3",
+    uniqueId="3",
     properties={"since": 2021},
     rel_type="KNOWS",
     start_node=node_alice,

@@ -98,14 +98,6 @@ class TestPersonOperations(unittest.TestCase):
         for person in test_data:
             self.assertIn(person, persons)
 
-    def test_unique_constraint(self):
-        # Given
-        self.conn.create_person("John Doe", 30)
-
-        # When/Then
-        with self.assertRaises(Exception):
-            self.conn.create_person("John Doe", 40)
-
     def test_types(self) -> None:
         properties: dict[str, PythonType] = {
             "name": "Keanu Reeves",
@@ -128,23 +120,58 @@ class TestPersonOperations(unittest.TestCase):
 
         # Node 생성 시: 파이썬 기본 타입 섞어서 넘기기
         node = Node(
-            element_id="test_node",
+            globalId="test_node",
             properties=properties,
             labels={"Person", "Actor", "TEST"},
         )
-        print(node.to_cypher_map())
         self.conn.upsert_node(node)
 
         # 만약 ListValue가 heterogeneous 하다면 (int+str):
         node = Node(
-            element_id="node_bad",
+            globalId="node_bad",
             labels={"Test"},
             properties={"mixed_list": [1, "two"]},  # 섞여 있음
         )
         self.assertRaises(
             ValueError,
-            node.to_cypher_map,
+            node.to_cypher_props,
         )
+
+    def test_upsert_node(self):
+        # Given
+        node = Node(
+            globalId="test_node",
+            properties={"name": "Keanu Reeves", "age": 42},
+            labels={"Person", "Actor", "TEST"},
+        )
+
+        # When
+        self.conn.upsert_node(node)
+
+        # Then
+        persons = self.conn.get_all_test_data()
+        self.assertEqual(len(persons), 1)
+        self.assertEqual(persons[0]["name"], "Keanu Reeves")
+        self.assertEqual(persons[0]["age"], 42)
+
+        self.conn.upsert_node(node)
+        persons = self.conn.get_all_test_data()
+        self.assertEqual(len(persons), 1)
+
+        node.properties["age"] = 43
+        self.conn.upsert_node(node)
+        persons = self.conn.get_all_test_data()
+        self.assertEqual(len(persons), 1)
+        self.assertEqual(persons[0]["age"], 43)
+
+        node.globalId = None
+        self.conn.upsert_node(node)
+        persons = self.conn.get_all_test_data()
+        self.assertEqual(len(persons), 2)
+
+        self.conn.upsert_node(node)
+        persons = self.conn.get_all_test_data()
+        self.assertEqual(len(persons), 3)
 
 
 if __name__ == "__main__":

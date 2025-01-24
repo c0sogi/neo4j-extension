@@ -40,3 +40,7 @@ class Neo4jType(ABC, Generic[T]):
         return isinstance(other, self.__class__) and self.value == getattr(
             other, "value", None
         )
+
+    @property
+    def is_neo4j_type(self) -> bool:
+        return True

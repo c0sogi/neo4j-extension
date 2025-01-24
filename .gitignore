@@ -10,5 +10,6 @@
 /lib
 
 # Global
+.env
 *.pyc
 $*

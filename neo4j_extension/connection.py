@@ -552,41 +552,68 @@ class Neo4jConnection:
         return "\n".join(lines)
 
     def _do_upsert_node(self, tx: ManagedTransaction, node: Node) -> dict:
-        """Merge node based on element_id in a transaction,
-        set all properties as new if node does not exist.
-        Use temporary label "NoLabel" if no label is present."""
+        """
+        Merge node based on globalId in a transaction (if exists).
+        If globalId is None, create a new node.
+        Use temporary label 'NoLabel' if no label is present.
+        """
+
+        # 1) 라벨 문자열 구성
         label_str = (
             ":".join(_escape_identifier(i) for i in sorted(node.labels))
             if node.labels
             else "NoLabel"
         )
 
-        query = f"""
-        MERGE (n:{label_str} {{element_id: $element_id}})
-        SET n = $props
-        RETURN n
-        """
-        result = tx.run(
-            query,
-            element_id=node.element_id,
-            props=node.to_python_map(
-                keep_element_id=True,  # node.element_id도 property에 저장
-                element_id_val=node.element_id,
-            ),
-        ).single()
+        # 2) globalId가 있는 경우: upsert
+        if node.globalId:
+            # # 2-1) 라벨에 대한 globalId 유니크 제약 보장
+            # ensure_unique_constraint_for_label(tx, label_str)
+
+            # 2-2) MERGE로 upsert
+            # 여기서는 예시로 기존 프로퍼티를 유지하고 새 props만 덮어씀(SET n += ...)
+            # 만약 완전히 교체하고 싶다면 SET n = $props 로 변경 가능
+            query = f"""
+            MERGE (n:{label_str} {{ globalId: $globalId }})
+            ON CREATE SET n.createdAt = timestamp()
+            ON MATCH SET  n.updatedAt = timestamp()
+            SET n += $props
+            RETURN n
+            """
+            result = tx.run(
+                query,
+                globalId=node.globalId,
+                props=node.to_python_props(),
+            ).single()
+
+        # 3) globalId가 없는 경우: 단순 CREATE
+        else:
+            query = f"""
+            CREATE (n:{label_str})
+            SET n = $props
+            RETURN n
+            """
+            result = tx.run(
+                query,
+                props=node.to_python_props(),
+            ).single()
+
         return result["n"] if result else {}
 
     def _do_upsert_relationship(
         self, tx: ManagedTransaction, relationship: Relationship
     ) -> dict:
         """
-        Merge relationship based on relationship.element_id in a transaction,
-        upsert start_node, end_node first in the same transaction.
+        Merge relationship based on relationship.globalId in a transaction (if exists).
+        Upsert start_node, end_node first in the same transaction.
         Use temporary label "NoLabel" if no label is present.
         """
+
+        # 1. 먼저 관계의 start_node, end_node를 upsert
         self._do_upsert_node(tx, relationship.start_node)
         self._do_upsert_node(tx, relationship.end_node)
 
+        # 2. 관계 양 끝 노드의 라벨 문자열 만들기
         start_labels = (
             ":".join(
                 _escape_identifier(i)
@@ -601,26 +628,51 @@ class Neo4jConnection:
             )
             or "NoLabel"
         )
+
+        # rel_type(예: "KNOWS") 이스케이프
         rel_type = _escape_identifier(relationship.rel_type)
 
-        query = f"""
-        MATCH (start:{start_labels} {{element_id: $startId}})
-        MATCH (end:{end_labels}     {{element_id: $endId}})
+        # 3. rel upsert (globalId 여부에 따라 분기)
+        if relationship.globalId:
+            # # (옵션) 관계에 대한 globalId 유니크 제약 보장
+            # ensure_unique_constraint_for_relationship(tx, rel_type)
 
-        MERGE (start)-[r:{rel_type} {{element_id: $relId}}]->(end)
-        SET r = $props
-        RETURN r
-        """
-        result = tx.run(
-            query,
-            startId=relationship.start_node.element_id,
-            endId=relationship.end_node.element_id,
-            relId=relationship.element_id,
-            props=relationship.to_python_map(
-                keep_element_id=True,
-                element_id_val=relationship.element_id,
-            ),
-        ).single()
+            # MERGE 쿼리: start/end 노드 찾고 -> 관계를 MERGE
+            # 글로벌 아이디가 있으면 (start)-[r:TYPE {globalId: $globalId}]->(end)
+            query = f"""
+            MATCH (start:{start_labels} {{globalId: $startNodeGlobalId}})
+            MATCH (end:{end_labels} {{globalId: $endNodeGlobalId}})
+            MERGE (start)-[r:{rel_type} {{ globalId: $relGlobalId }}]->(end)
+            ON CREATE SET r.createdAt = timestamp()
+            ON MATCH  SET r.updatedAt = timestamp()
+            SET r += $props
+            RETURN r
+            """
+            result = tx.run(
+                query,
+                startNodeGlobalId=relationship.start_node.globalId,
+                endNodeGlobalId=relationship.end_node.globalId,
+                relGlobalId=relationship.globalId,
+                props=relationship.to_python_props(),
+            ).single()
+
+        else:
+            # globalId가 없으면 그냥 새 관계를 생성
+            # (만약 '중복 생성'이 문제라면, globalId를 필수로 하거나 다른 식별자를 도입해야 함)
+            query = f"""
+            MATCH (start:{start_labels} {{globalId: $startNodeGlobalId}})
+            MATCH (end:{end_labels} {{globalId: $endNodeGlobalId}})
+            CREATE (start)-[r:{rel_type}]->(end)
+            SET r = $props
+            RETURN r
+            """
+            result = tx.run(
+                query,
+                startNodeGlobalId=relationship.start_node.globalId,
+                endNodeGlobalId=relationship.end_node.globalId,
+                props=relationship.to_python_props(),
+            ).single()
+
         return result["r"] if result else {}
 
     @with_session.readwrite_transaction
@@ -647,3 +699,71 @@ class Neo4jConnection:
         # 2) 모든 관계 업서트
         for rel in graph.relationships.values():
             self._do_upsert_relationship(tx, rel)
+
+
+# def ensure_unique_constraint_for_label(
+#     tx: ManagedTransaction, label_str: LiteralString
+# ) -> None:
+#     """
+#     Neo4j 5.26+ 환경에서, 주어진 라벨 label_str에 대해
+#     'globalId' 필드가 유일해야 함을 보장하는 UNIQUE CONSTRAINT를
+#     '이미 없으면' 생성한다.
+#     """
+
+#     # Neo4j 5.26+에서는 SHOW CONSTRAINTS로 특정 constraint 정보를 조회할 수 있음
+#     check_query = """
+#     SHOW CONSTRAINTS
+#     YIELD name, type, entityType, labelsOrTypes, properties
+#     WHERE type = 'UNIQUENESS'
+#       AND entityType = 'NODE'
+#       AND $label IN labelsOrTypes
+#       AND 'globalId' IN properties
+#     """
+#     constraints = tx.run(check_query, label=label_str).data()
+#     if not constraints:
+#         # 만약 해당 라벨+globalId에 대한 유니크 제약이 없다면 새로 생성
+#         # 'IF NOT EXISTS'는 4.4+ 부터 지원하므로 5.26+ 에서도 문제 없음
+#         create_query = f"""
+#         CREATE CONSTRAINT {generate_constraint_name(label_str)} IF NOT EXISTS
+#         FOR (n:{label_str})
+#         REQUIRE n.globalId IS UNIQUE
+#         """
+#         tx.run(create_query)
+
+
+# def ensure_unique_constraint_for_relationship(
+#     tx: ManagedTransaction, rel_type: LiteralString
+# ) -> None:
+#     """
+#     주어진 rel_type에 대해 관계(globalId)가 유일해야 함을 보장하는
+#     UNIQUE CONSTRAINT를 '이미 없으면' 생성한다.
+#     (Neo4j 5.26+)
+#     """
+
+#     # rel_type(예: "KNOWS")에 대한 관계 유니크 제약이 존재하는지 확인
+#     check_query = """
+#     SHOW CONSTRAINTS
+#     YIELD name, type, entityType, labelsOrTypes, properties
+#     WHERE type = 'UNIQUENESS'
+#       AND entityType = 'RELATIONSHIP'
+#       AND $rel_type IN labelsOrTypes
+#       AND 'globalId' IN properties
+#     """
+#     constraints = tx.run(check_query, rel_type=rel_type).data()
+
+#     if not constraints:
+#         # 없다면 새로 생성
+#         # 관계 유형 rel_type, 프로퍼티 globalId에 대해 UNIQUE 제약
+#         create_query = f"""
+#         CREATE CONSTRAINT {generate_constraint_name(rel_type)} IF NOT EXISTS
+#         FOR ()-[r:{rel_type}]-()
+#         REQUIRE r.globalId IS UNIQUE
+#         """
+#         tx.run(create_query)
+
+
+# def generate_constraint_name(label_str: LiteralString) -> LiteralString:
+#     # 콜론을 언더스코어로 치환
+#     # Actor:Person:TEST -> Actor_Person_TEST_globalId_unique
+#     clean_label = label_str.replace(":", "_")
+#     return f"{clean_label}_globalId_unique"

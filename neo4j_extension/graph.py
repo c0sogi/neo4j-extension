@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from abc import ABC, abstractmethod
 from typing import Dict as PyDict
 from typing import List as PyList
 from typing import Mapping, Optional, Set, Union
@@ -14,38 +15,37 @@ from .conversion import (
 from .primitives import Neo4jList
 
 
-class Entity:
-    element_id: str
-    properties: PyDict[str, Neo4jType]
+class PropertiesDict(PyDict[str, Neo4jType]):
+    def __setitem__(self, key: str, value: Neo4jType | PythonType) -> None:
+        super().__setitem__(key, ensure_neo4j_type(value))
+
+
+class Entity(ABC):
+    properties: PropertiesDict
+    globalId: Optional[str]
 
     def __init__(
         self,
-        element_id: str,
         properties: Mapping[str, Union[Neo4jType, PythonType]],
+        globalId: Optional[str] = None,
     ) -> None:
-        self.element_id = element_id
-        self.properties = {
-            k: ensure_neo4j_type(v) for k, v in properties.items()
-        }
+        self.globalId = globalId
+        self.properties = PropertiesDict(
+            {k: ensure_neo4j_type(v) for k, v in properties.items()}
+        )
 
-    def to_python_map(
-        self,
-        keep_element_id: bool = False,
-        element_id_val: Optional[str] = None,
-    ) -> dict[str, PythonType]:
+    def to_python_props(self) -> dict[str, PythonType]:
         """
         Convert properties to Python basic types(dict).
-        If keep_element_id is True, element_id is also stored.
-        If element_id_val is not None, it is used as the value of element_id.
         """
         result: dict[str, PythonType] = {}
         for k, v in self.properties.items():
             result[k] = convert_neo4j_to_python(v)
-        if keep_element_id and element_id_val is not None:
-            result["element_id"] = element_id_val
+        if self.globalId:
+            result["globalId"] = self.globalId
         return result
 
-    def to_cypher_map(self) -> str:
+    def to_cypher_props(self) -> str:
         pairs: PyList[str] = []
         for k, v in self.properties.items():
             # 리스트인 경우 property 저장 가능 여부 검사
@@ -60,27 +60,35 @@ class Entity:
             return "{}"
         return "{ " + ", ".join(pairs) + " }"
 
+    @abstractmethod
+    def to_cypher(self) -> str: ...
+
+    @property
+    def id(self) -> str:
+        return f"{_escape_identifier(self.globalId or self.__class__.__name__ + '_' + str(id(self)))}"
+
+    def __repr__(self) -> str:
+        return self.to_cypher()
+
+    def __str__(self) -> str:
+        return f"{self.__class__.__name__}({self.to_python_props()})"
+
 
 class Node(Entity):
     labels: Set[str]
 
     def __init__(
         self,
-        element_id: str,
         properties: Mapping[str, Union[Neo4jType, PythonType]],
         labels: Optional[Set[str]] = None,
+        globalId: Optional[str] = None,
     ) -> None:
-        super().__init__(element_id, properties)
+        super().__init__(properties=properties, globalId=globalId)
         self.labels = labels or set()
 
-    def to_cypher_create(self, var_name: str = "n") -> str:
-        if self.labels:
-            label_str = ":" + ":".join(self.labels)
-        else:
-            label_str = ""
-        props_str = self.to_cypher_map()
+    def to_cypher(self) -> str:
         return (
-            f"CREATE ({var_name}{label_str} {props_str}) RETURN {var_name}"
+            f"({self.id}: {':'.join(self.labels)} {self.to_cypher_props()})"
         )
 
 
@@ -91,29 +99,20 @@ class Relationship(Entity):
 
     def __init__(
         self,
-        element_id: str,
         properties: Mapping[str, Union[Neo4jType, PythonType]],
         rel_type: str,
         start_node: Node,
         end_node: Node,
+        globalId: Optional[str] = None,
     ) -> None:
-        super().__init__(element_id, properties)
+        super().__init__(properties=properties, globalId=globalId)
         self.rel_type = rel_type
         self.start_node = start_node
         self.end_node = end_node
 
-    def to_cypher_create(
-        self,
-        var_name: str = "r",
-        start_var: str = "a",
-        end_var: str = "b",
-    ) -> str:
-        props_str = self.to_cypher_map()
-        escaped_rel_type = _escape_identifier(self.rel_type)
-        return (
-            f"CREATE ({start_var})-[{var_name}:{escaped_rel_type} {props_str}]->({end_var}) "
-            f"RETURN {var_name}"
-        )
+    def to_cypher(self) -> str:
+        props_str = self.to_cypher_props()
+        return f"{self.start_node.to_cypher()}-[{self.id}: {self.rel_type} {props_str}]->{self.end_node.to_cypher()}"
 
 
 class Graph:
@@ -122,22 +121,41 @@ class Graph:
         self.relationships: PyDict[str, Relationship] = {}
 
     def add_node(self, node: Node) -> None:
-        self.nodes[node.element_id] = node
+        self.nodes[node.id] = node
 
     def add_relationship(self, relationship: Relationship) -> None:
-        self.relationships[relationship.element_id] = relationship
+        self.relationships[relationship.id] = relationship
 
-    def remove_node(self, element_id: str) -> None:
-        to_remove = []
+    def remove_node(self, node_id: str) -> None:
+        to_remove: PyList[str] = []
         for rid, rel in self.relationships.items():
-            if (
-                rel.start_node.element_id == element_id
-                or rel.end_node.element_id == element_id
-            ):
+            if rel.start_node.id == node_id or rel.end_node.id == node_id:
                 to_remove.append(rid)
         for rid in to_remove:
             self.remove_relationship(rid)
-        self.nodes.pop(element_id, None)
+        self.nodes.pop(node_id, None)
 
-    def remove_relationship(self, element_id: str) -> None:
-        self.relationships.pop(element_id, None)
+    def remove_relationship(self, rel_id: str) -> None:
+        self.relationships.pop(rel_id, None)
+
+
+if __name__ == "__main__":
+    graph = Graph()
+    node1 = Node({"name": "Alice"}, {"Person"}, "alice")
+    node2 = Node({"name": "Bob"}, {"Person"}, "bob")
+    rel = Relationship(
+        {"since": 1999}, "KNOWS", node1, node2, "alice_knows_bob"
+    )
+    graph.add_node(node1)
+    graph.add_node(node2)
+    graph.add_relationship(rel)
+    print(node1)
+    print(node2)
+    print(rel)
+    print(graph.nodes)
+    print(graph.relationships)
+    graph.remove_node("alice")
+    print(graph.nodes)
+    print(graph.relationships)
+    graph.remove_relationship("alice_knows_bob")
+    print(graph.relationships)
