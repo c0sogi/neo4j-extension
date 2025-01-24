@@ -1,0 +1,14 @@
+# Top-level
+/.venv*
+/.tmp*
+/target
+/*.egg-info
+/*.db
+/dist
+/log
+/build
+/lib
+
+# Global
+*.pyc
+$*
