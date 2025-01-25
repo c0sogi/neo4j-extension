@@ -34,8 +34,10 @@ from neo4j import (
     Session,
 )
 
+from .conversion import ensure_python_type
 from .graph import Graph, Node, Relationship
 from .typing import GraphSchema, Property
+from .utils import escape_identifier
 
 if TYPE_CHECKING:
     import ssl
@@ -535,7 +537,7 @@ class Neo4jConnection:
                 ON CREATE SET n.createdAt = timestamp()
                 ON MATCH  SET n.updatedAt = timestamp()
                 SET n += $props
-                SET n:{node.label_str}
+                SET n:{node.safe_labelstring}
                 RETURN n
             """
             result = tx.run(
@@ -543,7 +545,7 @@ class Neo4jConnection:
             ).single()
         else:
             query: LiteralString = f"""
-                CREATE (n:{node.label_str})
+                CREATE (n:{node.safe_labelstring})
                 SET n = $props
                 RETURN n
             """
@@ -559,12 +561,11 @@ class Neo4jConnection:
         """
         self._do_upsert_node(tx, relationship.start_node)
         self._do_upsert_node(tx, relationship.end_node)
-        rel_type: LiteralString = relationship.rel_type
         if relationship.globalId:
             query: LiteralString = f"""
                 MATCH (start {{globalId: $startNodeGlobalId}})
                 MATCH (end   {{globalId: $endNodeGlobalId}})
-                MERGE (start)-[r:{rel_type} {{ globalId: $relGlobalId }}]->(end)
+                MERGE (start)-[r:{escape_identifier(relationship.rel_type)} {{ globalId: $relGlobalId }}]->(end)
                 ON CREATE SET r.createdAt = timestamp()
                 ON MATCH  SET r.updatedAt = timestamp()
                 SET r += $props
@@ -581,7 +582,7 @@ class Neo4jConnection:
             query: LiteralString = f"""
                 MATCH (start {{globalId: $startNodeGlobalId}})
                 MATCH (end   {{globalId: $endNodeGlobalId}})
-                CREATE (start)-[r:{rel_type}]->(end)
+                CREATE (start)-[r:{escape_identifier(relationship.rel_type)}]->(end)
                 SET r = $props
                 RETURN r
             """
@@ -661,35 +662,32 @@ class Neo4jConnection:
         property_filters: { 'name': 'Alice', 'age': 20 }
         limit: 결과 개수 제한
         """
-        from .utils import escape_identifier
-
-        safe_label: LiteralString = escape_identifier(label)
-        where_clauses = []
-        params = {}
+        where_clauses: list[LiteralString] = []
+        params: dict[str, Any] = {}
         if property_filters:
             for idx, (k, v) in enumerate(property_filters.items()):
-                param_key = f"p{idx}"
+                param_key: LiteralString = cast(LiteralString, f"p{idx}")
                 where_clauses.append(
                     f"n.{escape_identifier(k)} = ${param_key}"
                 )
                 params[param_key] = v
 
-        where_str = ""
+        where_str: LiteralString = ""
         if where_clauses:
             where_str = "WHERE " + " AND ".join(where_clauses)
 
-        limit_clause = ""
+        limit_clause: LiteralString = ""
         if limit is not None:
-            limit_clause = f"LIMIT {limit}"
+            limit_clause = cast(LiteralString, f"LIMIT {limit}")
 
         query_str = f"""
-        MATCH (n:{safe_label})
+        MATCH (n:{escape_identifier(label)})
         {where_str}
         RETURN n
         {limit_clause}
         """
         result = tx.run(cast(LiteralString, query_str), **params)
-        nodes = []
+        nodes: list[Node] = []
         for record in result:
             neo4j_node = record["n"]
             nodes.append(Node.from_neo4j(neo4j_node))
@@ -706,35 +704,32 @@ class Neo4jConnection:
         """
         특정 relationship 타입과 속성 조건을 만족하는 관계 목록을 조회한다.
         """
-        from .utils import escape_identifier
-
-        safe_type: LiteralString = escape_identifier(rel_type)
-        where_clauses = []
-        params = {}
+        where_clauses: list[LiteralString] = []
+        params: dict[str, Any] = {}
         if property_filters:
             for idx, (k, v) in enumerate(property_filters.items()):
-                param_key = f"p{idx}"
+                param_key: LiteralString = cast(LiteralString, f"p{idx}")
                 where_clauses.append(
                     f"r.{escape_identifier(k)} = ${param_key}"
                 )
                 params[param_key] = v
 
-        where_str = ""
+        where_str: LiteralString = ""
         if where_clauses:
             where_str = "WHERE " + " AND ".join(where_clauses)
 
-        limit_clause = ""
+        limit_clause: LiteralString = ""
         if limit is not None:
-            limit_clause = f"LIMIT {limit}"
+            limit_clause = cast(LiteralString, f"LIMIT {limit}")
 
-        query_str = f"""
-        MATCH ()-[r:{safe_type}]->()
+        query_str: LiteralString = f"""
+        MATCH ()-[r:{escape_identifier(rel_type)}]->()
         {where_str}
         RETURN r
         {limit_clause}
         """
         result = tx.run(cast(LiteralString, query_str), **params)
-        rels = []
+        rels: list[Relationship] = []
         for record in result:
             neo4j_rel = record["r"]
             rels.append(Relationship.from_neo4j(neo4j_rel))
@@ -752,35 +747,32 @@ class Neo4jConnection:
         주어진 관계 타입(rel_type)과 property_filters를 만족하는
         (start_node, relationship, end_node) 목록을 조회한다.
         """
-        from .utils import escape_identifier
-
-        safe_type: LiteralString = escape_identifier(rel_type)
-        where_clauses = []
-        params = {}
+        where_clauses: list[LiteralString] = []
+        params: dict[str, Any] = {}
         if property_filters:
             for idx, (k, v) in enumerate(property_filters.items()):
-                param_key = f"p{idx}"
+                param_key: LiteralString = cast(LiteralString, f"p{idx}")
                 where_clauses.append(
                     f"r.{escape_identifier(k)} = ${param_key}"
                 )
                 params[param_key] = v
 
-        where_str = ""
+        where_str: LiteralString = ""
         if where_clauses:
             where_str = "WHERE " + " AND ".join(where_clauses)
 
-        limit_clause = ""
+        limit_clause: LiteralString = ""
         if limit is not None:
-            limit_clause = f"LIMIT {limit}"
+            limit_clause = cast(LiteralString, f"LIMIT {limit}")
 
-        query_str = f"""
-        MATCH (start)-[r:{safe_type}]->(end)
+        query_str: LiteralString = f"""
+        MATCH (start)-[r:{escape_identifier(rel_type)}]->(end)
         {where_str}
         RETURN start, r, end
         {limit_clause}
         """
-        result = tx.run(cast(LiteralString, query_str), **params)
-        output = []
+        result = tx.run(query_str, **params)
+        output: list[tuple[Node, Relationship, Node]] = []
         for record in result:
             start_node = Node.from_neo4j(record["start"])
             rel_obj = Relationship.from_neo4j(record["r"])
@@ -812,29 +804,26 @@ class Neo4jConnection:
         특정 레이블과 속성 조건을 만족하는 노드들을 일괄 삭제한다.
         (관계까지 포함)
         """
-        from .utils import escape_identifier
-
-        safe_label: LiteralString = escape_identifier(label)
-        where_clauses = []
-        params = {}
+        where_clauses: list[LiteralString] = []
+        params: dict[str, Any] = {}
         if property_filters:
             for idx, (k, v) in enumerate(property_filters.items()):
-                param_key = f"pf{idx}"
+                param_key: LiteralString = cast(LiteralString, f"pf{idx}")
                 where_clauses.append(
                     f"n.{escape_identifier(k)} = ${param_key}"
                 )
                 params[param_key] = v
 
-        where_str = ""
+        where_str: LiteralString = ""
         if where_clauses:
             where_str = "WHERE " + " AND ".join(where_clauses)
 
-        query_str = f"""
-        MATCH (n:{safe_label})
+        query_str: LiteralString = f"""
+        MATCH (n:{escape_identifier(label)})
         {where_str}
         DETACH DELETE n
         """
-        tx.run(cast(LiteralString, query_str), **params)
+        tx.run(query_str, **params)
 
     @with_session.readwrite_transaction
     def delete_relationship_by_global_id(
@@ -859,29 +848,26 @@ class Neo4jConnection:
         """
         특정 관계 타입과 속성 조건을 만족하는 관계들을 일괄 삭제한다.
         """
-        from .utils import escape_identifier
-
-        safe_type: LiteralString = escape_identifier(rel_type)
-        where_clauses = []
-        params = {}
+        where_clauses: list[LiteralString] = []
+        params: dict[str, Any] = {}
         if property_filters:
             for idx, (k, v) in enumerate(property_filters.items()):
-                param_key = f"pf{idx}"
+                param_key: LiteralString = cast(LiteralString, f"pf{idx}")
                 where_clauses.append(
                     f"r.{escape_identifier(k)} = ${param_key}"
                 )
                 params[param_key] = v
 
-        where_str = ""
+        where_str: LiteralString = ""
         if where_clauses:
             where_str = "WHERE " + " AND ".join(where_clauses)
 
-        query_str = f"""
-        MATCH ()-[r:{safe_type}]->()
+        query_str: LiteralString = f"""
+        MATCH ()-[r:{escape_identifier(rel_type)}]->()
         {where_str}
         DELETE r
         """
-        tx.run(cast(LiteralString, query_str), **params)
+        tx.run(query_str, **params)
 
     @with_session.readwrite_transaction
     def update_node_properties(
@@ -908,12 +894,9 @@ class Neo4jConnection:
         """
         global_id 노드에서 특정 property 하나를 제거한다.
         """
-        from .utils import escape_identifier
-
-        safe_key = escape_identifier(property_key)
         query: LiteralString = f"""
         MATCH (n {{globalId: $gid}})
-        SET n.{safe_key} = null
+        SET n.{escape_identifier(property_key)} = null
         """
         tx.run(query, gid=global_id)
 
@@ -925,17 +908,20 @@ class Neo4jConnection:
         global_id 노드에 새로운 레이블들을 추가한다.
         예: SET n:LabelA:LabelB
         """
-        from .utils import escape_identifier
-
         if not labels:
             return
-        safe_labels = [escape_identifier(lb) for lb in labels]
-        label_clause = "SET n" + "".join(f":{lbl}" for lbl in safe_labels)
-        query = f"""
+        label_clause: LiteralString = cast(
+            LiteralString,
+            "SET n"
+            + "".join(
+                f":{lbl}" for lbl in (escape_identifier(lb) for lb in labels)
+            ),
+        )
+        query: LiteralString = f"""
         MATCH (n {{globalId: $gid}})
         {label_clause}
         """
-        tx.run(cast(LiteralString, query), gid=global_id)
+        tx.run(query, gid=global_id)
 
     @with_session.readwrite_transaction
     def remove_labels_from_node(
@@ -945,19 +931,20 @@ class Neo4jConnection:
         global_id 노드에서 특정 레이블들을 제거한다.
         예: REMOVE n:LabelA:LabelB
         """
-        from .utils import escape_identifier
-
         if not labels:
             return
-        safe_labels = [escape_identifier(lb) for lb in labels]
-        remove_clause = "REMOVE n" + "".join(
-            f":{lbl}" for lbl in safe_labels
+        remove_clause: LiteralString = cast(
+            LiteralString,
+            "REMOVE n"
+            + "".join(
+                f":{lbl}" for lbl in (escape_identifier(lb) for lb in labels)
+            ),
         )
-        query = f"""
+        query: LiteralString = f"""
         MATCH (n {{globalId: $gid}})
         {remove_clause}
         """
-        tx.run(cast(LiteralString, query), gid=global_id)
+        tx.run(query, gid=global_id)
 
     @with_session.readwrite_transaction
     def update_relationship_properties(
@@ -989,13 +976,11 @@ class Neo4jConnection:
         start_node_global_id와 end_node_global_id를 가진 노드를
         주어진 관계(rel_type)로 연결한다. 없으면 생성, 있으면 업데이트.
         """
-        from .utils import escape_identifier
 
-        safe_type: LiteralString = escape_identifier(rel_type)
         query: LiteralString = f"""
         MATCH (start {{globalId: $startGid}})
         MATCH (end {{globalId: $endGid}})
-        MERGE (start)-[r:{safe_type}]->(end)
+        MERGE (start)-[r:{escape_identifier(rel_type)}]->(end)
         ON CREATE SET r.createdAt = timestamp()
         ON MATCH  SET r.updatedAt = timestamp()
         SET r += $props
@@ -1023,8 +1008,6 @@ class Neo4jConnection:
             return None
         n = rec["n"]
         node_obj = Node.from_neo4j(n)
-        from .conversion import ensure_python_type
-
         return {
             k: ensure_python_type(v) for k, v in node_obj.properties.items()
         }
@@ -1045,8 +1028,6 @@ class Neo4jConnection:
             return None
         r = rec["r"]
         rel_obj = Relationship.from_neo4j(r)
-        from .conversion import ensure_python_type
-
         return {
             k: ensure_python_type(v) for k, v in rel_obj.properties.items()
         }
@@ -1056,11 +1037,8 @@ class Neo4jConnection:
         """
         특정 레이블을 가진 노드의 총 개수를 반환한다.
         """
-        from .utils import escape_identifier
-
-        safe_label: LiteralString = escape_identifier(label)
-        query = f"""
-        MATCH (n:{safe_label})
+        query: LiteralString = f"""
+        MATCH (n:{escape_identifier(label)})
         RETURN count(n) as cnt
         """
         record = tx.run(cast(LiteralString, query)).single()
@@ -1073,11 +1051,8 @@ class Neo4jConnection:
         """
         특정 관계 타입을 가진 관계의 총 개수를 반환한다.
         """
-        from .utils import escape_identifier
-
-        safe_type: LiteralString = escape_identifier(rel_type)
-        query = f"""
-        MATCH ()-[r:{safe_type}]->()
+        query: LiteralString = f"""
+        MATCH ()-[r:{escape_identifier(rel_type)}]->()
         RETURN count(r) as cnt
         """
         record = tx.run(cast(LiteralString, query)).single()
@@ -1102,8 +1077,6 @@ class Neo4jConnection:
         record = await result.single()
         if record is None:
             return None
-        from .graph import Node
-
         return Node.from_neo4j(record["n"])
 
     @with_async_session.readonly_transaction
@@ -1117,41 +1090,36 @@ class Neo4jConnection:
         """
         특정 레이블과 속성 조건으로 노드 목록을 조회 (비동기)
         """
-        from .utils import escape_identifier
-
-        safe_label: LiteralString = escape_identifier(label)
-        where_clauses = []
-        params = {}
+        where_clauses: list[LiteralString] = []
+        params: dict[LiteralString, Any] = {}
         if property_filters:
             for idx, (k, v) in enumerate(property_filters.items()):
-                param_key = f"p{idx}"
+                param_key: LiteralString = cast(LiteralString, f"p{idx}")
                 where_clauses.append(
                     f"n.{escape_identifier(k)} = ${param_key}"
                 )
                 params[param_key] = v
 
-        where_str = ""
+        where_str: LiteralString = ""
         if where_clauses:
             where_str = "WHERE " + " AND ".join(where_clauses)
 
-        limit_clause = ""
+        limit_clause: LiteralString = ""
         if limit is not None:
-            limit_clause = f"LIMIT {limit}"
+            limit_clause = cast(LiteralString, f"LIMIT {limit}")
 
-        query_str = f"""
-        MATCH (n:{safe_label})
+        query_str: LiteralString = f"""
+        MATCH (n:{escape_identifier(label)})
         {where_str}
         RETURN n
         {limit_clause}
         """
-        result = await tx.run(cast(LiteralString, query_str), **params)
-        records = []
+        result = await tx.run(query_str, **params)
+        records: list[neo4j.Record] = []
         async for rec in result:
             records.append(rec)
-        nodes = []
+        nodes: list[Node] = []
         for record in records:
-            from .graph import Node
-
             neo4j_node = record["n"]
             nodes.append(Node.from_neo4j(neo4j_node))
         return nodes
@@ -1167,41 +1135,36 @@ class Neo4jConnection:
         """
         특정 relationship 타입과 속성 조건을 만족하는 관계 목록을 조회 (비동기)
         """
-        from .utils import escape_identifier
-
-        safe_type: LiteralString = escape_identifier(rel_type)
-        where_clauses = []
-        params = {}
+        where_clauses: list[LiteralString] = []
+        params: dict[str, Any] = {}
         if property_filters:
             for idx, (k, v) in enumerate(property_filters.items()):
-                param_key = f"p{idx}"
+                param_key: LiteralString = cast(LiteralString, f"p{idx}")
                 where_clauses.append(
                     f"r.{escape_identifier(k)} = ${param_key}"
                 )
                 params[param_key] = v
 
-        where_str = ""
+        where_str: LiteralString = ""
         if where_clauses:
             where_str = "WHERE " + " AND ".join(where_clauses)
 
-        limit_clause = ""
+        limit_clause: LiteralString = ""
         if limit is not None:
-            limit_clause = f"LIMIT {limit}"
+            limit_clause = cast(LiteralString, f"LIMIT {limit}")
 
-        query_str = f"""
-        MATCH ()-[r:{safe_type}]->()
+        query_str: LiteralString = f"""
+        MATCH ()-[r:{escape_identifier(rel_type)}]->()
         {where_str}
         RETURN r
         {limit_clause}
         """
         result = await tx.run(cast(LiteralString, query_str), **params)
-        records = []
+        records: list[neo4j.Record] = []
         async for rec in result:
             records.append(rec)
-        rels = []
+        rels: list[Relationship] = []
         for record in records:
-            from .graph import Relationship
-
             rels.append(Relationship.from_neo4j(record["r"]))
         return rels
 
@@ -1277,13 +1240,10 @@ class Neo4jConnection:
         """
         비동기 버전: 두 노드를 rel_type으로 연결한다. 없으면 생성, 있으면 업데이트.
         """
-        from .utils import escape_identifier
-
-        safe_type: LiteralString = escape_identifier(rel_type)
         query: LiteralString = f"""
         MATCH (start {{globalId: $startGid}})
         MATCH (end {{globalId: $endGid}})
-        MERGE (start)-[r:{safe_type}]->(end)
+        MERGE (start)-[r:{escape_identifier(rel_type)}]->(end)
         ON CREATE SET r.createdAt = timestamp()
         ON MATCH  SET r.updatedAt = timestamp()
         SET r += $props
@@ -1302,14 +1262,11 @@ class Neo4jConnection:
         """
         특정 레이블을 가진 노드 총 개수 (비동기)
         """
-        from .utils import escape_identifier
-
-        safe_label: LiteralString = escape_identifier(label)
-        query = f"""
-        MATCH (n:{safe_label})
+        query: LiteralString = f"""
+        MATCH (n:{escape_identifier(label)})
         RETURN count(n) as cnt
         """
-        result = await tx.run(cast(LiteralString, query))
+        result = await tx.run(query)
         record = await result.single()
         if record is None:
             return 0
@@ -1322,14 +1279,11 @@ class Neo4jConnection:
         """
         특정 관계 타입을 가진 관계 총 개수 (비동기)
         """
-        from .utils import escape_identifier
-
-        safe_type: LiteralString = escape_identifier(rel_type)
-        query = f"""
-        MATCH ()-[r:{safe_type}]->()
+        query: LiteralString = f"""
+        MATCH ()-[r:{escape_identifier(rel_type)}]->()
         RETURN count(r) as cnt
         """
-        result = await tx.run(cast(LiteralString, query))
+        result = await tx.run(query)
         record = await result.single()
         if record is None:
             return 0

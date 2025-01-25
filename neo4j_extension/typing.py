@@ -1,4 +1,4 @@
-from typing import Any, LiteralString, TypedDict
+from typing import Any, TypedDict
 
 
 class Property(TypedDict):
@@ -7,9 +7,9 @@ class Property(TypedDict):
 
 
 class Triplet(TypedDict):
-    start: LiteralString
-    type: LiteralString
-    end: LiteralString
+    start: str
+    type: str
+    end: str
 
 
 class StructuredSchemaMetadata(TypedDict):
