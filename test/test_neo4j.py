@@ -774,7 +774,7 @@ class TestNeo4jConnectionUtilities(unittest.TestCase):
             tx.run(
                 """
                 MATCH (a:TESTUTIL {globalId:'n1_id'})-[r:LINKED]->(b:TESTUTIL {globalId:'n2_id'})
-                SET r.weight = 99, r.updatedAt = timestamp()
+                SET r.weight = 99
                 """
             )
 

@@ -534,8 +534,6 @@ class Neo4jConnection:
         if node.globalId:
             query: LiteralString = f"""
                 MERGE (n {{ globalId: $globalId }})
-                ON CREATE SET n.createdAt = timestamp()
-                ON MATCH  SET n.updatedAt = timestamp()
                 SET n += $props
                 SET n:{node.safe_labelstring}
                 RETURN n
@@ -566,8 +564,6 @@ class Neo4jConnection:
                 MATCH (start {{globalId: $startNodeGlobalId}})
                 MATCH (end   {{globalId: $endNodeGlobalId}})
                 MERGE (start)-[r:{escape_identifier(relationship.rel_type)} {{ globalId: $relGlobalId }}]->(end)
-                ON CREATE SET r.createdAt = timestamp()
-                ON MATCH  SET r.updatedAt = timestamp()
                 SET r += $props
                 RETURN r
             """
@@ -883,7 +879,6 @@ class Neo4jConnection:
         query: LiteralString = """
         MATCH (n {globalId: $gid})
         SET n += $props
-        SET n.updatedAt = timestamp()
         """
         tx.run(query, gid=global_id, props=new_properties)
 
@@ -959,7 +954,6 @@ class Neo4jConnection:
         query: LiteralString = """
         MATCH ()-[r {globalId: $gid}]->()
         SET r += $props
-        SET r.updatedAt = timestamp()
         """
         tx.run(query, gid=global_id, props=new_properties)
 
@@ -981,8 +975,6 @@ class Neo4jConnection:
         MATCH (start {{globalId: $startGid}})
         MATCH (end {{globalId: $endGid}})
         MERGE (start)-[r:{escape_identifier(rel_type)}]->(end)
-        ON CREATE SET r.createdAt = timestamp()
-        ON MATCH  SET r.updatedAt = timestamp()
         SET r += $props
         """
         tx.run(
@@ -1207,7 +1199,6 @@ class Neo4jConnection:
         query: LiteralString = """
         MATCH (n {globalId: $gid})
         SET n += $props
-        SET n.updatedAt = timestamp()
         """
         await tx.run(query, gid=global_id, props=new_properties)
 
@@ -1224,7 +1215,6 @@ class Neo4jConnection:
         query: LiteralString = """
         MATCH ()-[r {globalId: $gid}]->()
         SET r += $props
-        SET r.updatedAt = timestamp()
         """
         await tx.run(query, gid=global_id, props=new_properties)
 
@@ -1244,8 +1234,6 @@ class Neo4jConnection:
         MATCH (start {{globalId: $startGid}})
         MATCH (end {{globalId: $endGid}})
         MERGE (start)-[r:{escape_identifier(rel_type)}]->(end)
-        ON CREATE SET r.createdAt = timestamp()
-        ON MATCH  SET r.updatedAt = timestamp()
         SET r += $props
         """
         await tx.run(
