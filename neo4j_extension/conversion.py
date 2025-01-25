@@ -1,7 +1,7 @@
 from datetime import date, datetime, time, timedelta
 from typing import Dict as PyDict
 from typing import List as PyList
-from typing import Union
+from typing import LiteralString, Union
 
 from .abc import Neo4jType
 from .primitive import (
@@ -217,7 +217,7 @@ def ensure_python_type(value: Union[Neo4jType, PythonType]) -> PythonType:
     return value
 
 
-def get_neo4j_property_type_name(val: Neo4jType) -> str:
+def get_neo4j_property_type_name(val: Neo4jType) -> LiteralString:
     """
     Return the name of the Neo4j property type for the given value.
     """

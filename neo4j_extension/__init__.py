@@ -1,6 +1,5 @@
 from .abc import Neo4jType
 from .connection import (
-    GraphSchema,
     Neo4jConnection,
     with_async_session,
     with_session,
@@ -33,6 +32,12 @@ from .temporal import (
     Neo4jLocalTime,
     Neo4jZonedDateTime,
     Neo4jZonedTime,
+)
+from .typing import (
+    GraphSchema,
+    Property,
+    Triplet,
+    StructuredSchemaMetadata,
 )
 from .utils import (
     escape_identifier,
@@ -78,4 +83,8 @@ __all__ = [
     "split_by_comma_top_level",
     "tokenize_cypher_expression",
     "ensure_python_type",
+    "Property",
+    "Triplet",
+    "StructuredSchemaMetadata",
+    "GraphSchema",
 ]

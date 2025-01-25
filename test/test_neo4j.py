@@ -519,7 +519,7 @@ class TestConnectionAndSession(unittest.TestCase):
         실제로 APOC이 설치되어 있어야 하며,
         DB에 특정 인덱스/제약조건이 없으면 빈 리스트 등으로 나올 수 있음.
         """
-        schema: GraphSchema = self.conn.graph_schema
+        schema: GraphSchema = self.conn.get_graph_schema()
         # 기본적으로 아무 것도 없는 경우 빈 구조가 반환될 수 있음
         self.assertIn("node_props", schema)
         self.assertIn("rel_props", schema)
@@ -528,7 +528,7 @@ class TestConnectionAndSession(unittest.TestCase):
         self.assertIn("constraint", schema["metadata"])
         self.assertIn("index", schema["metadata"])
 
-        formatted = self.conn.formatted_graph_schema
+        formatted: str = self.conn.get_formatted_graph_schema()
         self.assertIsInstance(formatted, str)
         # 간단히 문자열 길이만이라도 체크
         self.assertGreater(len(formatted), 0)
@@ -581,6 +581,263 @@ class TestParsingHelpers(unittest.TestCase):
         self.assertEqual(len(splitted2), 4)
         # (3, 4)는 하나의 덩어리가 됨
         self.assertIn("(3,4)", splitted2[2])
+
+
+class TestNeo4jConnectionUtilities(unittest.TestCase):
+    """
+    Neo4jConnection에 정의된 다양한 유틸리티 메서드를 테스트한다.
+    (동기 방식 위주)
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.conn = Neo4jTestconnection()
+        # 테스트용 라벨 (테스트 중에만 사용)
+        cls.test_label = "TESTUTIL"
+
+    @classmethod
+    def tearDownClass(cls):
+        if cls.conn:
+            cls.conn.clear_all()  # 모든 데이터 삭제
+            cls.conn.close()
+
+    def setUp(self):
+        # 각 테스트 시작 전에 DB 초기화
+        self.conn.clear_all_test_data()  # TEST 라벨만 삭제
+        self.conn.clear_all()  # 혹시 남은 데이터도 모두 삭제
+        # 재연결(테스트 격리)
+        self.conn.close()
+
+    def tearDown(self):
+        self.conn.clear_all()
+        self.conn.close()
+
+    def test_find_and_delete_node_by_global_id(self):
+        """
+        upsert_node -> find_node_by_global_id -> delete_node_by_global_id
+        순으로 노드를 생성/조회/삭제하고 동작 확인
+        """
+        # 1) 노드를 생성(upsert)
+        node = Node(
+            properties={"name": "Utility Test", "count": 1},
+            labels={self.test_label},
+            globalId="util_node_1",
+        )
+        self.conn.upsert_node(node)
+
+        # 2) find_node_by_global_id로 조회
+        found_node = self.conn.find_node_by_global_id("util_node_1")
+        self.assertIsNotNone(found_node)
+        assert found_node is not None
+        self.assertEqual(found_node["name"], "Utility Test")
+        self.assertEqual(found_node["count"], 1)
+
+        # 3) 노드 삭제
+        self.conn.delete_node_by_global_id("util_node_1")
+        after_delete = self.conn.find_node_by_global_id("util_node_1")
+        self.assertIsNone(
+            after_delete, "노드가 삭제된 뒤에는 조회가 없어야 함"
+        )
+
+    def test_match_nodes_and_delete_nodes_by_label(self):
+        """
+        match_nodes -> 특정 label + 속성조건으로 노드를 찾고,
+        delete_nodes_by_label -> 일괄 삭제 확인
+        """
+        # 노드 2개 생성
+        node1 = Node(
+            {"name": "Alice", "category": "hero"},
+            {self.test_label},
+            "alice_id",
+        )
+        node2 = Node(
+            {"name": "Bob", "category": "villain"},
+            {self.test_label},
+            "bob_id",
+        )
+        self.conn.upsert_node(node1)
+        self.conn.upsert_node(node2)
+
+        # label = TESTUTIL, property_filters = {"category": "hero"}
+        matched = self.conn.match_nodes(
+            label=self.test_label, property_filters={"category": "hero"}
+        )
+        self.assertEqual(len(matched), 1, "hero 카테고리는 1개만 있어야 함")
+        self.assertEqual(matched[0]["name"], "Alice")
+
+        # delete_nodes_by_label로 모든 TESTUTIL 노드 삭제
+        self.conn.delete_nodes_by_label(self.test_label)
+        # 모두 삭제되었는지 확인
+        matched_after = self.conn.match_nodes(label=self.test_label)
+        self.assertEqual(
+            len(matched_after), 0, "TESTUTIL 노드가 모두 삭제되어야 함"
+        )
+
+    def test_update_node_properties_and_remove_property(self):
+        """
+        update_node_properties -> 노드 속성 업데이트
+        remove_node_property -> 특정 속성만 제거
+        """
+        node = Node({"name": "Charlie"}, {self.test_label}, "charlie_id")
+        self.conn.upsert_node(node)
+
+        # 업데이트 전 상태 확인
+        props_before = self.conn.get_node_properties("charlie_id")
+        self.assertIsNotNone(props_before)
+        assert props_before is not None
+        self.assertNotIn("age", props_before, "초기엔 age 속성이 없어야 함")
+
+        # update_node_properties
+        self.conn.update_node_properties(
+            "charlie_id", {"age": 35, "location": "Earth"}
+        )
+        props_mid = self.conn.get_node_properties("charlie_id")
+        self.assertIsNotNone(props_mid)
+        assert props_mid is not None
+
+        self.assertEqual(props_mid["age"], 35)
+        self.assertEqual(props_mid["location"], "Earth")
+
+        # remove_node_property
+        self.conn.remove_node_property("charlie_id", "location")
+        props_after = self.conn.get_node_properties("charlie_id")
+        self.assertIsNotNone(props_after)
+        assert props_after is not None
+
+        self.assertIn("age", props_after)
+        self.assertNotIn(
+            "location", props_after, "location 속성은 제거되어야 함"
+        )
+
+    def test_add_and_remove_labels_from_node(self):
+        """
+        add_labels_to_node -> 노드에 라벨 추가
+        remove_labels_from_node -> 노드에서 라벨 제거
+        """
+        node = Node({"prop": "val"}, {self.test_label}, "test_node_lbl")
+        self.conn.upsert_node(node)
+
+        # 라벨 추가
+        self.conn.add_labels_to_node("test_node_lbl", ["ExtraLabel"])
+
+        # Cypher로 직접 라벨 목록 조회
+        @with_session.readonly_transaction
+        def check_labels(conn: Neo4jTestconnection, tx: ManagedTransaction):
+            rec = tx.run(
+                "MATCH (n:TESTUTIL {globalId:'test_node_lbl'}) RETURN labels(n) as lbls"
+            ).single()
+            return rec["lbls"] if rec else []
+
+        labels_added = check_labels(self.conn)
+        self.assertIn("TESTUTIL", labels_added)
+        self.assertIn("ExtraLabel", labels_added)
+
+        # 라벨 제거
+        self.conn.remove_labels_from_node("test_node_lbl", ["ExtraLabel"])
+        labels_removed = check_labels(self.conn)
+        self.assertIn("TESTUTIL", labels_removed)
+        self.assertNotIn("ExtraLabel", labels_removed)
+
+    def test_link_nodes_and_relationship_properties(self):
+        """
+        link_nodes -> 두 노드를 rel_type으로 연결,
+        update_relationship_properties -> 관계 속성 수정,
+        get_relationship_properties -> 수정된 속성 확인,
+        delete_relationship_by_global_id -> 관계 삭제
+        """
+        # upsert_node로 start/end 노드를 만든다
+        n1 = Node({"name": "Node1"}, {self.test_label}, "n1_id")
+        n2 = Node({"name": "Node2"}, {self.test_label}, "n2_id")
+        self.conn.upsert_node(n1)
+        self.conn.upsert_node(n2)
+
+        # link_nodes -> globalId가 있는 노드를 rel_type으로 연결 (MERGE)
+        self.conn.link_nodes(
+            "n1_id", "n2_id", "LINKED", properties={"weight": 10}
+        )
+
+        # relationship의 globalId가 없는 상태 -> Neo4jConnection 레벨에서 "globalId"를 제어하지 않음
+        # 관계 속성을 조회하려면, match_relationships나 find_nodes_in_relationship를 사용하거나
+        # Cypher 직접 호출해야 한다. 여기서는 match_relationships를 사용.
+        matched_rels = self.conn.match_relationships(
+            rel_type="LINKED", property_filters={"weight": 10}
+        )
+        self.assertEqual(len(matched_rels), 1, "생성된 관계가 1개 있어야 함")
+        # 관계 globalId가 없으므로 None
+        self.assertIsNone(matched_rels[0].globalId)
+
+        # update_relationship_properties( ) -> globalId 없는 관계는 match가 안 됨.
+        # 대신 test_upsert_relationship에서는 globalId가 있을 때만 업데이트를 잘 확인했음.
+        # 여기서는 간단히 merge된 관계를 Cypher로 직접 찾아서 업데이트하는 방법 시연
+        @with_session.readwrite_transaction
+        def update_link(conn: Neo4jTestconnection, tx: ManagedTransaction):
+            tx.run(
+                """
+                MATCH (a:TESTUTIL {globalId:'n1_id'})-[r:LINKED]->(b:TESTUTIL {globalId:'n2_id'})
+                SET r.weight = 99, r.updatedAt = timestamp()
+                """
+            )
+
+        update_link(self.conn)
+
+        # 다시 match해서 확인
+        updated_rels = self.conn.match_relationships(
+            "LINKED", {"weight": 99}
+        )
+        self.assertEqual(len(updated_rels), 1)
+
+        # 관계 삭제. globalId가 없으므로 delete_relationship_by_global_id는 못쓰고,
+        # delete_relationships_by_type로 속성 필터 써볼 수도 있음
+        self.conn.delete_relationships_by_type("LINKED", {"weight": 99})
+        after_del = self.conn.match_relationships("LINKED")
+        self.assertEqual(len(after_del), 0, "관계가 삭제되어야 함")
+
+    def test_count_nodes_and_relationships(self):
+        """
+        count_nodes / count_relationships로 라벨, 관계타입 개수를 세는 테스트
+        """
+        # 노드/관계 3개 정도 생성
+        n1 = Node({}, {self.test_label}, "countA")
+        n2 = Node({}, {self.test_label}, "countB")
+        n3 = Node({}, {self.test_label}, "countC")
+        self.conn.upsert_node(n1)
+        self.conn.upsert_node(n2)
+        self.conn.upsert_node(n3)
+
+        self.conn.link_nodes("countA", "countB", "LINKED")
+        self.conn.link_nodes("countB", "countC", "LINKED")
+
+        # 노드 수 세기
+        node_count = self.conn.count_nodes(self.test_label)
+        self.assertEqual(node_count, 3, "테스트 라벨 노드가 3개 있어야 함")
+
+        # 관계 수 세기
+        rel_count = self.conn.count_relationships("LINKED")
+        self.assertEqual(rel_count, 2, "LINKED 타입 관계가 2개 있어야 함")
+
+    def test_find_nodes_in_relationship(self):
+        """
+        find_nodes_in_relationship: (start_node, relationship, end_node) 튜플로 반환
+        """
+        # 노드 2개, 관계 1개
+        n1 = Node({"prop": "n1"}, {self.test_label}, "gidA")
+        n2 = Node({"prop": "n2"}, {self.test_label}, "gidB")
+        self.conn.upsert_node(n1)
+        self.conn.upsert_node(n2)
+        self.conn.link_nodes(
+            "gidA", "gidB", "KNOWS", properties={"since": 2022}
+        )
+
+        # find_nodes_in_relationship
+        result_triples = self.conn.find_nodes_in_relationship(
+            rel_type="KNOWS", property_filters={"since": 2022}
+        )
+        self.assertEqual(len(result_triples), 1)
+        start_node, relationship, end_node = result_triples[0]
+        self.assertEqual(start_node.globalId, "gidA")
+        self.assertEqual(end_node.globalId, "gidB")
+        self.assertEqual(relationship.rel_type, "KNOWS")
+        self.assertEqual(relationship["since"], 2022)
 
 
 if __name__ == "__main__":

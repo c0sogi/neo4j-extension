@@ -35,6 +35,7 @@ from neo4j import (
 )
 
 from .graph import Graph, Node, Relationship
+from .typing import GraphSchema, Property
 
 if TYPE_CHECKING:
     import ssl
@@ -174,7 +175,7 @@ else:
 NODE_PROPERTIES_QUERY: Final = """
 CALL apoc.meta.data()
 YIELD label, other, elementType, type, property
-WHERE NOT type = "RELATIONSHIP" 
+WHERE NOT type = "RELATIONSHIP"
     AND elementType = "node"
     AND NOT label IN $EXCLUDED_LABELS
 WITH label AS nodeLabels, collect({property: property, type: type}) AS properties
@@ -184,7 +185,7 @@ RETURN {labels: nodeLabels, properties: properties} AS output
 REL_PROPERTIES_QUERY: Final = """
 CALL apoc.meta.data()
 YIELD label, other, elementType, type, property
-WHERE NOT type = "RELATIONSHIP" 
+WHERE NOT type = "RELATIONSHIP"
     AND elementType = "relationship"
     AND NOT label IN $EXCLUDED_RELS
 WITH label AS nodeLabels, collect({property: property, type: type}) AS properties
@@ -194,22 +195,21 @@ RETURN {type: nodeLabels, properties: properties} AS output
 REL_QUERY: Final = """
 CALL apoc.meta.data()
 YIELD label, other, elementType, type, property
-WHERE type = "RELATIONSHIP" 
+WHERE type = "RELATIONSHIP"
     AND elementType = "node"
 UNWIND other AS other_node
-WITH * 
+WITH *
 WHERE NOT label IN $EXCLUDED_LABELS
     AND NOT other_node IN $EXCLUDED_LABELS
 RETURN {start: label, type: property, end: toString(other_node)} AS output
 """
 
 INDEX_RES_QUERY: Final = """
-CALL apoc.schema.nodes() 
+CALL apoc.schema.nodes()
 YIELD label, properties, type, size, valuesSelectivity
 WHERE type = 'RANGE'
 RETURN *, size * valuesSelectivity as distinctValues
 """
-
 
 ENV_NEO4J_HOST: str = environ.get("NEO4J_HOST", "localhost")
 ENV_NEO4J_USER: str = environ.get("NEO4J_USER", "neo4j")
@@ -227,30 +227,11 @@ logging.basicConfig(
 )
 
 
-class Prop(TypedDict):
-    property: str
-    type: str
-
-
-class Rel(TypedDict):
-    start: str
-    type: str
-    end: str
-
-
-class StructuredSchemaMetadata(TypedDict):
-    constraint: list[dict[str, Any]]
-    index: list[dict[str, Any]]
-
-
-class GraphSchema(TypedDict):
-    node_props: dict[str, list[Prop]]
-    rel_props: dict[str, list[Prop]]
-    relationships: list[Rel]
-    metadata: StructuredSchemaMetadata
-
-
 class with_session:
+    """
+    동기용 데코레이터 모음.
+    """
+
     @staticmethod
     def scope(
         method: Callable[Concatenate[Neo4j, Session, P], T]
@@ -290,6 +271,10 @@ class with_session:
 
 
 class with_async_session:
+    """
+    비동기용 데코레이터 모음.
+    """
+
     @staticmethod
     def scope(
         method: Callable[Concatenate[Neo4j, AsyncSession, P], Awaitable[T]]
@@ -346,7 +331,8 @@ class with_async_session:
 
 @dataclass
 class Neo4jConnection:
-    """Neo4j Connection
+    """
+    Neo4j Connection
 
     Attributes:
         host: str
@@ -355,6 +341,10 @@ class Neo4jConnection:
         user: str
         protocol: str
         driver: Optional[Driver]
+        async_driver: Optional[AsyncDriver]
+        driver_kwargs: DriverKwargs
+        async_driver_kwargs: AsyncDriverKwargs
+        session_kwargs: SessionKwargs
     """
 
     host: str = ENV_NEO4J_HOST
@@ -364,7 +354,6 @@ class Neo4jConnection:
     protocol: str = "neo4j"
     driver: Optional[Driver] = None
     async_driver: Optional[AsyncDriver] = None
-
     driver_kwargs: DriverKwargs = field(default_factory=DriverKwargs)
     async_driver_kwargs: AsyncDriverKwargs = field(
         default_factory=AsyncDriverKwargs
@@ -377,7 +366,6 @@ class Neo4jConnection:
             driver_kwargs["uri"] = self.uri
         if "auth" not in driver_kwargs:
             driver_kwargs["auth"] = self.auth
-
         logger.info(f"neo4j::connecting to `{self.uri}` ...")
         self.driver = GraphDatabase.driver(**driver_kwargs)
         self.driver.verify_connectivity()
@@ -392,7 +380,6 @@ class Neo4jConnection:
             async_driver_kwargs["uri"] = self.uri
         if "auth" not in async_driver_kwargs:
             async_driver_kwargs["auth"] = self.auth
-
         logger.info(f"neo4j::connecting to `{self.uri}` ...")
         self.async_driver = AsyncGraphDatabase.driver(**async_driver_kwargs)
         await self.async_driver.verify_connectivity()
@@ -444,9 +431,8 @@ class Neo4jConnection:
     async def __aexit__(self, *args: Any) -> None:
         await self.aclose()
 
-    @property
     @with_session.scope
-    def graph_schema(
+    def get_graph_schema(
         self,
         session: Session,
         excluded_labels: Optional[list[str]] = None,
@@ -474,7 +460,6 @@ class Neo4jConnection:
         relationships_res = run_query(
             query=REL_QUERY, params={"EXCLUDED_LABELS": excluded_labels}
         )
-
         try:
             constraint_res: list[dict[str, Any]] = run_query(
                 "SHOW CONSTRAINTS"
@@ -482,7 +467,6 @@ class Neo4jConnection:
         except neo4j.exceptions.Neo4jError as e:
             logger.warning(f"Cannot read constraints: {e}")
             constraint_res = []
-
         try:
             index_res = run_query(INDEX_RES_QUERY)
         except neo4j.exceptions.Neo4jError as e:
@@ -503,15 +487,22 @@ class Neo4jConnection:
         }
         return structured_schema
 
-    @property
-    def formatted_graph_schema(self) -> str:
-        return self.format_graph_schema(self.graph_schema)
+    def get_formatted_graph_schema(
+        self,
+        excluded_labels: Optional[list[str]] = None,
+        excluded_rels: Optional[list[str]] = None,
+    ) -> str:
+        return self.format_graph_schema(
+            self.get_graph_schema(
+                excluded_labels=excluded_labels, excluded_rels=excluded_rels
+            )
+        )
 
     @staticmethod
     def format_graph_schema(graph_schema: GraphSchema) -> str:
         lines: list[str] = []
         lines.append("### Node properties")
-        node_props: dict[str, list[Prop]] = graph_schema.get(
+        node_props: dict[str, list[Property]] = graph_schema.get(
             "node_props", {}
         )
         for label, props in node_props.items():
@@ -519,7 +510,9 @@ class Neo4jConnection:
             for p in props:
                 lines.append(f"  * {p['property']}: {p['type']}")
         lines.append("\n### Relationship properties")
-        rel_props: dict[str, list[Prop]] = graph_schema.get("rel_props", {})
+        rel_props: dict[str, list[Property]] = graph_schema.get(
+            "rel_props", {}
+        )
         for rtype, rprops in rel_props.items():
             lines.append(f"- {rtype}")
             for rp in rprops:
@@ -530,16 +523,13 @@ class Neo4jConnection:
             lines.append(
                 f"- (:{rel_dict['start']})-[:{rel_dict['type']}]->(:{rel_dict['end']})"
             )
-
         return "\n".join(lines)
 
     def _do_upsert_node(self, tx: ManagedTransaction, node: Node) -> dict:
         """
-        Merge node based on globalId if present. 라벨로 매칭하지 않고, globalId만 사용.
-        라벨은 이후에 'SET n:SomeLabel' 형태로 붙임.
+        Merge node based on globalId if present.
         """
         if node.globalId:
-            # globalId만으로 MERGE
             query: LiteralString = f"""
                 MERGE (n {{ globalId: $globalId }})
                 ON CREATE SET n.createdAt = timestamp()
@@ -552,29 +542,24 @@ class Neo4jConnection:
                 query, globalId=node.globalId, props=node.to_python_props()
             ).single()
         else:
-            # globalId 없으면 CREATE
-            query = f"""
+            query: LiteralString = f"""
                 CREATE (n:{node.label_str})
                 SET n = $props
                 RETURN n
             """
             result = tx.run(query, props=node.to_python_props()).single()
-
         return result["n"] if result else {}
 
     def _do_upsert_relationship(
         self, tx: ManagedTransaction, relationship: Relationship
     ) -> dict:
         """
-        Merge relationship based on relationship.globalId if present, using the relationship type.
+        Merge relationship based on relationship.globalId if present.
         Upsert start_node, end_node first with globalId only.
         """
-        # [변경됨!] start_node, end_node도 label 없이 { globalId: ~ }로 매칭
         self._do_upsert_node(tx, relationship.start_node)
         self._do_upsert_node(tx, relationship.end_node)
-
         rel_type: LiteralString = relationship.rel_type
-
         if relationship.globalId:
             query: LiteralString = f"""
                 MATCH (start {{globalId: $startNodeGlobalId}})
@@ -593,8 +578,7 @@ class Neo4jConnection:
                 props=relationship.to_python_props(),
             ).single()
         else:
-            # globalId 없는 관계면 무조건 CREATE
-            query = f"""
+            query: LiteralString = f"""
                 MATCH (start {{globalId: $startNodeGlobalId}})
                 MATCH (end   {{globalId: $endNodeGlobalId}})
                 CREATE (start)-[r:{rel_type}]->(end)
@@ -607,7 +591,6 @@ class Neo4jConnection:
                 endNodeGlobalId=relationship.end_node.globalId,
                 props=relationship.to_python_props(),
             ).single()
-
         return result["r"] if result else {}
 
     @with_session.readwrite_transaction
@@ -617,7 +600,7 @@ class Neo4jConnection:
 
     @with_async_session.readwrite_transaction
     async def aclear_all(self, tx: AsyncManagedTransaction) -> None:
-        """Clear all data in the database"""
+        """Clear all data in the database (async)"""
         await tx.run("MATCH (n) DETACH DELETE n")
 
     @with_session.readwrite_transaction
@@ -641,3 +624,713 @@ class Neo4jConnection:
             self._do_upsert_node(tx, node)
         for rel in graph.relationships.values():
             self._do_upsert_relationship(tx, rel)
+
+    # --------------------------------------------------------------------------------
+    # (Below) New utility methods for node/relationship search, update, delete, etc.
+    # Synchronous versions
+    # --------------------------------------------------------------------------------
+
+    @with_session.readonly_transaction
+    def find_node_by_global_id(
+        self, tx: ManagedTransaction, global_id: str
+    ) -> Optional[Node]:
+        """
+        주어진 global_id를 가진 노드를 조회하여 Node 객체로 반환한다.
+        없으면 None.
+        """
+        query: LiteralString = """
+        MATCH (n {globalId: $globalId})
+        RETURN n
+        """
+        record = tx.run(query, globalId=global_id).single()
+        if record is None:
+            return None
+        neo4j_node = record["n"]
+        return Node.from_neo4j(neo4j_node)
+
+    @with_session.readonly_transaction
+    def match_nodes(
+        self,
+        tx: ManagedTransaction,
+        label: str,
+        property_filters: Optional[dict[str, Any]] = None,
+        limit: Optional[int] = None,
+    ) -> list[Node]:
+        """
+        특정 레이블과 속성 조건으로 노드 목록을 조회한다.
+        property_filters: { 'name': 'Alice', 'age': 20 }
+        limit: 결과 개수 제한
+        """
+        from .utils import escape_identifier
+
+        safe_label: LiteralString = escape_identifier(label)
+        where_clauses = []
+        params = {}
+        if property_filters:
+            for idx, (k, v) in enumerate(property_filters.items()):
+                param_key = f"p{idx}"
+                where_clauses.append(
+                    f"n.{escape_identifier(k)} = ${param_key}"
+                )
+                params[param_key] = v
+
+        where_str = ""
+        if where_clauses:
+            where_str = "WHERE " + " AND ".join(where_clauses)
+
+        limit_clause = ""
+        if limit is not None:
+            limit_clause = f"LIMIT {limit}"
+
+        query_str = f"""
+        MATCH (n:{safe_label})
+        {where_str}
+        RETURN n
+        {limit_clause}
+        """
+        result = tx.run(cast(LiteralString, query_str), **params)
+        nodes = []
+        for record in result:
+            neo4j_node = record["n"]
+            nodes.append(Node.from_neo4j(neo4j_node))
+        return nodes
+
+    @with_session.readonly_transaction
+    def match_relationships(
+        self,
+        tx: ManagedTransaction,
+        rel_type: str,
+        property_filters: Optional[dict[str, Any]] = None,
+        limit: Optional[int] = None,
+    ) -> list[Relationship]:
+        """
+        특정 relationship 타입과 속성 조건을 만족하는 관계 목록을 조회한다.
+        """
+        from .utils import escape_identifier
+
+        safe_type: LiteralString = escape_identifier(rel_type)
+        where_clauses = []
+        params = {}
+        if property_filters:
+            for idx, (k, v) in enumerate(property_filters.items()):
+                param_key = f"p{idx}"
+                where_clauses.append(
+                    f"r.{escape_identifier(k)} = ${param_key}"
+                )
+                params[param_key] = v
+
+        where_str = ""
+        if where_clauses:
+            where_str = "WHERE " + " AND ".join(where_clauses)
+
+        limit_clause = ""
+        if limit is not None:
+            limit_clause = f"LIMIT {limit}"
+
+        query_str = f"""
+        MATCH ()-[r:{safe_type}]->()
+        {where_str}
+        RETURN r
+        {limit_clause}
+        """
+        result = tx.run(cast(LiteralString, query_str), **params)
+        rels = []
+        for record in result:
+            neo4j_rel = record["r"]
+            rels.append(Relationship.from_neo4j(neo4j_rel))
+        return rels
+
+    @with_session.readonly_transaction
+    def find_nodes_in_relationship(
+        self,
+        tx: ManagedTransaction,
+        rel_type: str,
+        property_filters: Optional[dict[str, Any]] = None,
+        limit: Optional[int] = None,
+    ) -> list[tuple[Node, Relationship, Node]]:
+        """
+        주어진 관계 타입(rel_type)과 property_filters를 만족하는
+        (start_node, relationship, end_node) 목록을 조회한다.
+        """
+        from .utils import escape_identifier
+
+        safe_type: LiteralString = escape_identifier(rel_type)
+        where_clauses = []
+        params = {}
+        if property_filters:
+            for idx, (k, v) in enumerate(property_filters.items()):
+                param_key = f"p{idx}"
+                where_clauses.append(
+                    f"r.{escape_identifier(k)} = ${param_key}"
+                )
+                params[param_key] = v
+
+        where_str = ""
+        if where_clauses:
+            where_str = "WHERE " + " AND ".join(where_clauses)
+
+        limit_clause = ""
+        if limit is not None:
+            limit_clause = f"LIMIT {limit}"
+
+        query_str = f"""
+        MATCH (start)-[r:{safe_type}]->(end)
+        {where_str}
+        RETURN start, r, end
+        {limit_clause}
+        """
+        result = tx.run(cast(LiteralString, query_str), **params)
+        output = []
+        for record in result:
+            start_node = Node.from_neo4j(record["start"])
+            rel_obj = Relationship.from_neo4j(record["r"])
+            end_node = Node.from_neo4j(record["end"])
+            output.append((start_node, rel_obj, end_node))
+        return output
+
+    @with_session.readwrite_transaction
+    def delete_node_by_global_id(
+        self, tx: ManagedTransaction, global_id: str
+    ) -> None:
+        """
+        global_id를 가진 노드를 (관계까지) 삭제한다.
+        """
+        query: LiteralString = """
+        MATCH (n {globalId: $gid})
+        DETACH DELETE n
+        """
+        tx.run(query, gid=global_id)
+
+    @with_session.readwrite_transaction
+    def delete_nodes_by_label(
+        self,
+        tx: ManagedTransaction,
+        label: str,
+        property_filters: Optional[dict[str, Any]] = None,
+    ) -> None:
+        """
+        특정 레이블과 속성 조건을 만족하는 노드들을 일괄 삭제한다.
+        (관계까지 포함)
+        """
+        from .utils import escape_identifier
+
+        safe_label: LiteralString = escape_identifier(label)
+        where_clauses = []
+        params = {}
+        if property_filters:
+            for idx, (k, v) in enumerate(property_filters.items()):
+                param_key = f"pf{idx}"
+                where_clauses.append(
+                    f"n.{escape_identifier(k)} = ${param_key}"
+                )
+                params[param_key] = v
+
+        where_str = ""
+        if where_clauses:
+            where_str = "WHERE " + " AND ".join(where_clauses)
+
+        query_str = f"""
+        MATCH (n:{safe_label})
+        {where_str}
+        DETACH DELETE n
+        """
+        tx.run(cast(LiteralString, query_str), **params)
+
+    @with_session.readwrite_transaction
+    def delete_relationship_by_global_id(
+        self, tx: ManagedTransaction, global_id: str
+    ) -> None:
+        """
+        globalId를 가진 관계를 찾아 삭제한다.
+        """
+        query: LiteralString = """
+        MATCH ()-[r {globalId: $gid}]-()
+        DELETE r
+        """
+        tx.run(query, gid=global_id)
+
+    @with_session.readwrite_transaction
+    def delete_relationships_by_type(
+        self,
+        tx: ManagedTransaction,
+        rel_type: str,
+        property_filters: Optional[dict[str, Any]] = None,
+    ) -> None:
+        """
+        특정 관계 타입과 속성 조건을 만족하는 관계들을 일괄 삭제한다.
+        """
+        from .utils import escape_identifier
+
+        safe_type: LiteralString = escape_identifier(rel_type)
+        where_clauses = []
+        params = {}
+        if property_filters:
+            for idx, (k, v) in enumerate(property_filters.items()):
+                param_key = f"pf{idx}"
+                where_clauses.append(
+                    f"r.{escape_identifier(k)} = ${param_key}"
+                )
+                params[param_key] = v
+
+        where_str = ""
+        if where_clauses:
+            where_str = "WHERE " + " AND ".join(where_clauses)
+
+        query_str = f"""
+        MATCH ()-[r:{safe_type}]->()
+        {where_str}
+        DELETE r
+        """
+        tx.run(cast(LiteralString, query_str), **params)
+
+    @with_session.readwrite_transaction
+    def update_node_properties(
+        self,
+        tx: ManagedTransaction,
+        global_id: str,
+        new_properties: dict[str, Any],
+    ) -> None:
+        """
+        global_id 노드의 속성을 업데이트한다.
+        존재하지 않는 속성은 새로 추가, 기존에 있으면 덮어쓴다.
+        """
+        query: LiteralString = """
+        MATCH (n {globalId: $gid})
+        SET n += $props
+        SET n.updatedAt = timestamp()
+        """
+        tx.run(query, gid=global_id, props=new_properties)
+
+    @with_session.readwrite_transaction
+    def remove_node_property(
+        self, tx: ManagedTransaction, global_id: str, property_key: str
+    ) -> None:
+        """
+        global_id 노드에서 특정 property 하나를 제거한다.
+        """
+        from .utils import escape_identifier
+
+        safe_key = escape_identifier(property_key)
+        query: LiteralString = f"""
+        MATCH (n {{globalId: $gid}})
+        SET n.{safe_key} = null
+        """
+        tx.run(query, gid=global_id)
+
+    @with_session.readwrite_transaction
+    def add_labels_to_node(
+        self, tx: ManagedTransaction, global_id: str, labels: list[str]
+    ) -> None:
+        """
+        global_id 노드에 새로운 레이블들을 추가한다.
+        예: SET n:LabelA:LabelB
+        """
+        from .utils import escape_identifier
+
+        if not labels:
+            return
+        safe_labels = [escape_identifier(lb) for lb in labels]
+        label_clause = "SET n" + "".join(f":{lbl}" for lbl in safe_labels)
+        query = f"""
+        MATCH (n {{globalId: $gid}})
+        {label_clause}
+        """
+        tx.run(cast(LiteralString, query), gid=global_id)
+
+    @with_session.readwrite_transaction
+    def remove_labels_from_node(
+        self, tx: ManagedTransaction, global_id: str, labels: list[str]
+    ) -> None:
+        """
+        global_id 노드에서 특정 레이블들을 제거한다.
+        예: REMOVE n:LabelA:LabelB
+        """
+        from .utils import escape_identifier
+
+        if not labels:
+            return
+        safe_labels = [escape_identifier(lb) for lb in labels]
+        remove_clause = "REMOVE n" + "".join(
+            f":{lbl}" for lbl in safe_labels
+        )
+        query = f"""
+        MATCH (n {{globalId: $gid}})
+        {remove_clause}
+        """
+        tx.run(cast(LiteralString, query), gid=global_id)
+
+    @with_session.readwrite_transaction
+    def update_relationship_properties(
+        self,
+        tx: ManagedTransaction,
+        global_id: str,
+        new_properties: dict[str, Any],
+    ) -> None:
+        """
+        global_id 관계의 속성을 업데이트한다.
+        """
+        query: LiteralString = """
+        MATCH ()-[r {globalId: $gid}]->()
+        SET r += $props
+        SET r.updatedAt = timestamp()
+        """
+        tx.run(query, gid=global_id, props=new_properties)
+
+    @with_session.readwrite_transaction
+    def link_nodes(
+        self,
+        tx: ManagedTransaction,
+        start_node_global_id: str,
+        end_node_global_id: str,
+        rel_type: str,
+        properties: Optional[dict[str, Any]] = None,
+    ) -> None:
+        """
+        start_node_global_id와 end_node_global_id를 가진 노드를
+        주어진 관계(rel_type)로 연결한다. 없으면 생성, 있으면 업데이트.
+        """
+        from .utils import escape_identifier
+
+        safe_type: LiteralString = escape_identifier(rel_type)
+        query: LiteralString = f"""
+        MATCH (start {{globalId: $startGid}})
+        MATCH (end {{globalId: $endGid}})
+        MERGE (start)-[r:{safe_type}]->(end)
+        ON CREATE SET r.createdAt = timestamp()
+        ON MATCH  SET r.updatedAt = timestamp()
+        SET r += $props
+        """
+        tx.run(
+            query,
+            startGid=start_node_global_id,
+            endGid=end_node_global_id,
+            props=properties or {},
+        )
+
+    @with_session.readonly_transaction
+    def get_node_properties(
+        self, tx: ManagedTransaction, global_id: str
+    ) -> Optional[dict[str, Any]]:
+        """
+        global_id 노드의 모든 속성을 Python dict 형태로 반환한다.
+        """
+        query: LiteralString = """
+        MATCH (n {globalId: $gid})
+        RETURN n
+        """
+        rec = tx.run(query, gid=global_id).single()
+        if rec is None:
+            return None
+        n = rec["n"]
+        node_obj = Node.from_neo4j(n)
+        from .conversion import ensure_python_type
+
+        return {
+            k: ensure_python_type(v) for k, v in node_obj.properties.items()
+        }
+
+    @with_session.readonly_transaction
+    def get_relationship_properties(
+        self, tx: ManagedTransaction, global_id: str
+    ) -> Optional[dict[str, Any]]:
+        """
+        global_id 관계의 모든 속성을 Python dict 형태로 반환한다.
+        """
+        query: LiteralString = """
+        MATCH ()-[r {globalId: $gid}]->()
+        RETURN r
+        """
+        rec = tx.run(query, gid=global_id).single()
+        if rec is None:
+            return None
+        r = rec["r"]
+        rel_obj = Relationship.from_neo4j(r)
+        from .conversion import ensure_python_type
+
+        return {
+            k: ensure_python_type(v) for k, v in rel_obj.properties.items()
+        }
+
+    @with_session.readonly_transaction
+    def count_nodes(self, tx: ManagedTransaction, label: str) -> int:
+        """
+        특정 레이블을 가진 노드의 총 개수를 반환한다.
+        """
+        from .utils import escape_identifier
+
+        safe_label: LiteralString = escape_identifier(label)
+        query = f"""
+        MATCH (n:{safe_label})
+        RETURN count(n) as cnt
+        """
+        record = tx.run(cast(LiteralString, query)).single()
+        return record["cnt"] if record else 0
+
+    @with_session.readonly_transaction
+    def count_relationships(
+        self, tx: ManagedTransaction, rel_type: str
+    ) -> int:
+        """
+        특정 관계 타입을 가진 관계의 총 개수를 반환한다.
+        """
+        from .utils import escape_identifier
+
+        safe_type: LiteralString = escape_identifier(rel_type)
+        query = f"""
+        MATCH ()-[r:{safe_type}]->()
+        RETURN count(r) as cnt
+        """
+        record = tx.run(cast(LiteralString, query)).single()
+        return record["cnt"] if record else 0
+
+    # --------------------------------------------------------------------------------
+    # (Below) Async versions of the same utilities (using with_async_session)
+    # --------------------------------------------------------------------------------
+
+    @with_async_session.readonly_transaction
+    async def afind_node_by_global_id(
+        self, tx: AsyncManagedTransaction, global_id: str
+    ) -> Optional[Node]:
+        """
+        주어진 global_id를 가진 노드를 조회 (비동기)
+        """
+        query: LiteralString = """
+        MATCH (n {globalId: $globalId})
+        RETURN n
+        """
+        result = await tx.run(query, globalId=global_id)
+        record = await result.single()
+        if record is None:
+            return None
+        from .graph import Node
+
+        return Node.from_neo4j(record["n"])
+
+    @with_async_session.readonly_transaction
+    async def amatch_nodes(
+        self,
+        tx: AsyncManagedTransaction,
+        label: str,
+        property_filters: Optional[dict[str, Any]] = None,
+        limit: Optional[int] = None,
+    ) -> list[Node]:
+        """
+        특정 레이블과 속성 조건으로 노드 목록을 조회 (비동기)
+        """
+        from .utils import escape_identifier
+
+        safe_label: LiteralString = escape_identifier(label)
+        where_clauses = []
+        params = {}
+        if property_filters:
+            for idx, (k, v) in enumerate(property_filters.items()):
+                param_key = f"p{idx}"
+                where_clauses.append(
+                    f"n.{escape_identifier(k)} = ${param_key}"
+                )
+                params[param_key] = v
+
+        where_str = ""
+        if where_clauses:
+            where_str = "WHERE " + " AND ".join(where_clauses)
+
+        limit_clause = ""
+        if limit is not None:
+            limit_clause = f"LIMIT {limit}"
+
+        query_str = f"""
+        MATCH (n:{safe_label})
+        {where_str}
+        RETURN n
+        {limit_clause}
+        """
+        result = await tx.run(cast(LiteralString, query_str), **params)
+        records = []
+        async for rec in result:
+            records.append(rec)
+        nodes = []
+        for record in records:
+            from .graph import Node
+
+            neo4j_node = record["n"]
+            nodes.append(Node.from_neo4j(neo4j_node))
+        return nodes
+
+    @with_async_session.readonly_transaction
+    async def amatch_relationships(
+        self,
+        tx: AsyncManagedTransaction,
+        rel_type: str,
+        property_filters: Optional[dict[str, Any]] = None,
+        limit: Optional[int] = None,
+    ) -> list[Relationship]:
+        """
+        특정 relationship 타입과 속성 조건을 만족하는 관계 목록을 조회 (비동기)
+        """
+        from .utils import escape_identifier
+
+        safe_type: LiteralString = escape_identifier(rel_type)
+        where_clauses = []
+        params = {}
+        if property_filters:
+            for idx, (k, v) in enumerate(property_filters.items()):
+                param_key = f"p{idx}"
+                where_clauses.append(
+                    f"r.{escape_identifier(k)} = ${param_key}"
+                )
+                params[param_key] = v
+
+        where_str = ""
+        if where_clauses:
+            where_str = "WHERE " + " AND ".join(where_clauses)
+
+        limit_clause = ""
+        if limit is not None:
+            limit_clause = f"LIMIT {limit}"
+
+        query_str = f"""
+        MATCH ()-[r:{safe_type}]->()
+        {where_str}
+        RETURN r
+        {limit_clause}
+        """
+        result = await tx.run(cast(LiteralString, query_str), **params)
+        records = []
+        async for rec in result:
+            records.append(rec)
+        rels = []
+        for record in records:
+            from .graph import Relationship
+
+            rels.append(Relationship.from_neo4j(record["r"]))
+        return rels
+
+    @with_async_session.readwrite_transaction
+    async def adelete_node_by_global_id(
+        self, tx: AsyncManagedTransaction, global_id: str
+    ) -> None:
+        """
+        global_id를 가진 노드를 (관계까지) 삭제 (비동기)
+        """
+        query: LiteralString = """
+        MATCH (n {globalId: $gid})
+        DETACH DELETE n
+        """
+        await tx.run(query, gid=global_id)
+
+    @with_async_session.readwrite_transaction
+    async def adelete_relationship_by_global_id(
+        self, tx: AsyncManagedTransaction, global_id: str
+    ) -> None:
+        """
+        globalId를 가진 관계를 찾아 삭제 (비동기)
+        """
+        query: LiteralString = """
+        MATCH ()-[r {globalId: $gid}]-()
+        DELETE r
+        """
+        await tx.run(query, gid=global_id)
+
+    @with_async_session.readwrite_transaction
+    async def aupdate_node_properties(
+        self,
+        tx: AsyncManagedTransaction,
+        global_id: str,
+        new_properties: dict[str, Any],
+    ) -> None:
+        """
+        global_id 노드의 속성을 업데이트한다. (비동기)
+        """
+        query: LiteralString = """
+        MATCH (n {globalId: $gid})
+        SET n += $props
+        SET n.updatedAt = timestamp()
+        """
+        await tx.run(query, gid=global_id, props=new_properties)
+
+    @with_async_session.readwrite_transaction
+    async def aupdate_relationship_properties(
+        self,
+        tx: AsyncManagedTransaction,
+        global_id: str,
+        new_properties: dict[str, Any],
+    ) -> None:
+        """
+        global_id 관계의 속성을 업데이트 (비동기)
+        """
+        query: LiteralString = """
+        MATCH ()-[r {globalId: $gid}]->()
+        SET r += $props
+        SET r.updatedAt = timestamp()
+        """
+        await tx.run(query, gid=global_id, props=new_properties)
+
+    @with_async_session.readwrite_transaction
+    async def alink_nodes(
+        self,
+        tx: AsyncManagedTransaction,
+        start_node_global_id: str,
+        end_node_global_id: str,
+        rel_type: str,
+        properties: Optional[dict[str, Any]] = None,
+    ) -> None:
+        """
+        비동기 버전: 두 노드를 rel_type으로 연결한다. 없으면 생성, 있으면 업데이트.
+        """
+        from .utils import escape_identifier
+
+        safe_type: LiteralString = escape_identifier(rel_type)
+        query: LiteralString = f"""
+        MATCH (start {{globalId: $startGid}})
+        MATCH (end {{globalId: $endGid}})
+        MERGE (start)-[r:{safe_type}]->(end)
+        ON CREATE SET r.createdAt = timestamp()
+        ON MATCH  SET r.updatedAt = timestamp()
+        SET r += $props
+        """
+        await tx.run(
+            query,
+            startGid=start_node_global_id,
+            endGid=end_node_global_id,
+            props=properties or {},
+        )
+
+    @with_async_session.readonly_transaction
+    async def acount_nodes(
+        self, tx: AsyncManagedTransaction, label: str
+    ) -> int:
+        """
+        특정 레이블을 가진 노드 총 개수 (비동기)
+        """
+        from .utils import escape_identifier
+
+        safe_label: LiteralString = escape_identifier(label)
+        query = f"""
+        MATCH (n:{safe_label})
+        RETURN count(n) as cnt
+        """
+        result = await tx.run(cast(LiteralString, query))
+        record = await result.single()
+        if record is None:
+            return 0
+        return record["cnt"]
+
+    @with_async_session.readonly_transaction
+    async def acount_relationships(
+        self, tx: AsyncManagedTransaction, rel_type: str
+    ) -> int:
+        """
+        특정 관계 타입을 가진 관계 총 개수 (비동기)
+        """
+        from .utils import escape_identifier
+
+        safe_type: LiteralString = escape_identifier(rel_type)
+        query = f"""
+        MATCH ()-[r:{safe_type}]->()
+        RETURN count(r) as cnt
+        """
+        result = await tx.run(cast(LiteralString, query))
+        record = await result.single()
+        if record is None:
+            return 0
+        return record["cnt"]
