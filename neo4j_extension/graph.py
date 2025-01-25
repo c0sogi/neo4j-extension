@@ -1,52 +1,60 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from typing import Any, LiteralString, Mapping, Optional, Self, Union
 from typing import Dict as PyDict
 from typing import List as PyList
-from typing import Mapping, Optional, Set, Union
 
-from ._utils import _escape_identifier
+import neo4j
+import neo4j.graph
+
 from .abc import Neo4jType
 from .conversion import (
     PythonType,
     convert_neo4j_to_python,
     ensure_neo4j_type,
+    ensure_python_type,
 )
-from .primitives import Neo4jList
-
-
-class PropertiesDict(PyDict[str, Neo4jType]):
-    def __setitem__(self, key: str, value: Neo4jType | PythonType) -> None:
-        super().__setitem__(key, ensure_neo4j_type(value))
+from .primitive import Neo4jList
+from .utils import escape_identifier
 
 
 class Entity(ABC):
-    properties: PropertiesDict
-    globalId: Optional[str]
+    properties: PyDict[LiteralString, Neo4jType]
+    globalId: Optional[LiteralString]
 
     def __init__(
         self,
         properties: Mapping[str, Union[Neo4jType, PythonType]],
         globalId: Optional[str] = None,
     ) -> None:
-        self.globalId = globalId
-        self.properties = PropertiesDict(
-            {k: ensure_neo4j_type(v) for k, v in properties.items()}
-        )
+        self.globalId = escape_identifier(globalId) if globalId else None
+        self.properties = {
+            escape_identifier(k): ensure_neo4j_type(v)
+            for k, v in properties.items()
+        }
 
-    def to_python_props(self) -> dict[str, PythonType]:
+    def __getitem__(self, key: str) -> PythonType:
+        return ensure_python_type(self.properties[escape_identifier(key)])
+
+    def __setitem__(
+        self, key: str, value: Union[Neo4jType, PythonType]
+    ) -> None:
+        self.properties[escape_identifier(key)] = ensure_neo4j_type(value)
+
+    def to_python_props(self) -> dict[LiteralString, PythonType]:
         """
         Convert properties to Python basic types(dict).
         """
-        result: dict[str, PythonType] = {}
+        result: dict[LiteralString, PythonType] = {}
         for k, v in self.properties.items():
             result[k] = convert_neo4j_to_python(v)
         if self.globalId:
             result["globalId"] = self.globalId
         return result
 
-    def to_cypher_props(self) -> str:
-        pairs: PyList[str] = []
+    def to_cypher_props(self) -> LiteralString:
+        pairs: PyList[LiteralString] = []
         for k, v in self.properties.items():
             # 리스트인 경우 property 저장 가능 여부 검사
             if isinstance(v, Neo4jList):
@@ -54,20 +62,24 @@ class Entity(ABC):
                     raise ValueError(
                         f"Property '{k}' contains a non-storable ListValue."
                     )
-            escaped_key = _escape_identifier(k)
+            escaped_key: LiteralString = escape_identifier(k)
             pairs.append(f"{escaped_key}: {v.to_cypher()}")
         if not pairs:
             return "{}"
         return "{ " + ", ".join(pairs) + " }"
 
     @abstractmethod
-    def to_cypher(self) -> str: ...
+    def to_cypher(self) -> LiteralString: ...
+
+    @classmethod
+    @abstractmethod
+    def from_neo4j(cls, entity: neo4j.graph.Entity) -> Self: ...
 
     @property
-    def id(self) -> str:
-        return f"{_escape_identifier(self.globalId or self.__class__.__name__ + '_' + str(id(self)))}"
+    def id(self) -> LiteralString:
+        return f"{escape_identifier(self.globalId or self.__class__.__name__ + '_' + str(id(self)))}"
 
-    def __repr__(self) -> str:
+    def __repr__(self) -> LiteralString:
         return self.to_cypher()
 
     def __str__(self) -> str:
@@ -75,25 +87,45 @@ class Entity(ABC):
 
 
 class Node(Entity):
-    labels: Set[str]
+    labels: frozenset[LiteralString]
 
     def __init__(
         self,
         properties: Mapping[str, Union[Neo4jType, PythonType]],
-        labels: Optional[Set[str]] = None,
+        labels: Optional[set[str] | frozenset[str]] = None,
         globalId: Optional[str] = None,
     ) -> None:
         super().__init__(properties=properties, globalId=globalId)
-        self.labels = labels or set()
-
-    def to_cypher(self) -> str:
-        return (
-            f"({self.id}: {':'.join(self.labels)} {self.to_cypher_props()})"
+        self.labels = frozenset(
+            escape_identifier(label) for label in labels or ()
         )
+
+    @classmethod
+    def from_neo4j(  # pyright: ignore[reportIncompatibleMethodOverride]
+        cls,
+        entity: neo4j.graph.Node,
+    ) -> Self:
+        properties: PyDict[str, Any] = entity._properties
+        globalId = properties.get("globalId")
+        if globalId:
+            globalId = str(globalId)
+        else:
+            globalId = None
+        return cls(
+            properties=properties, labels=entity.labels, globalId=globalId
+        )
+
+    def to_cypher(self) -> LiteralString:
+        props: LiteralString = self.to_cypher_props()
+        return f"({self.id}: {self.label_str} {props})"
+
+    @property
+    def label_str(self) -> LiteralString:
+        return ":".join(self.labels) if self.labels else "Node"
 
 
 class Relationship(Entity):
-    rel_type: str
+    rel_type: LiteralString
     start_node: Node
     end_node: Node
 
@@ -106,19 +138,67 @@ class Relationship(Entity):
         globalId: Optional[str] = None,
     ) -> None:
         super().__init__(properties=properties, globalId=globalId)
-        self.rel_type = rel_type
+        self.rel_type = escape_identifier(rel_type)
         self.start_node = start_node
         self.end_node = end_node
 
-    def to_cypher(self) -> str:
-        props_str = self.to_cypher_props()
-        return f"{self.start_node.to_cypher()}-[{self.id}: {self.rel_type} {props_str}]->{self.end_node.to_cypher()}"
+    @classmethod
+    def from_neo4j(  # pyright: ignore[reportIncompatibleMethodOverride]
+        cls,
+        entity: neo4j.graph.Relationship,
+    ) -> Self:
+        if entity.start_node is None or entity.end_node is None:
+            raise ValueError(
+                "Relationship must have both a start and end node."
+            )
+        properties: PyDict[str, Any] = entity._properties
+        globalId = properties.get("globalId")
+        if globalId:
+            globalId = str(globalId)
+        else:
+            globalId = None
+        return cls(
+            properties=properties,
+            rel_type=entity.type,
+            start_node=Node.from_neo4j(entity.start_node),
+            end_node=Node.from_neo4j(entity.end_node),
+            globalId=globalId,
+        )
+
+    def to_cypher(self) -> LiteralString:
+        start_node: LiteralString = self.start_node.to_cypher()
+        props_str: LiteralString = self.to_cypher_props()
+        return f"{start_node}-[{self.id}: {self.rel_type} {props_str}]->{self.end_node.to_cypher()}"
+
+
+class NodePath:
+    relationships: PyList[Relationship]
+    start_node: Optional[Node]
+    end_node: Optional[Node]
+
+    def __init__(
+        self,
+        relationships: PyList[Relationship],
+        start_node: Optional[Node] = None,
+        end_node: Optional[Node] = None,
+    ) -> None:
+        if start_node is None and end_node is None:
+            raise ValueError(
+                "NodePath must contain at least one start or end node."
+            )
+        self.start_node = start_node
+        self.end_node = end_node
+        if not relationships:
+            raise ValueError(
+                "NodePath must contain at least one relationship."
+            )
+        self.relationships = relationships
 
 
 class Graph:
     def __init__(self):
-        self.nodes: PyDict[str, Node] = {}
-        self.relationships: PyDict[str, Relationship] = {}
+        self.nodes: PyDict[LiteralString, Node] = {}
+        self.relationships: PyDict[LiteralString, Relationship] = {}
 
     def add_node(self, node: Node) -> None:
         self.nodes[node.id] = node
@@ -133,13 +213,14 @@ class Graph:
                 to_remove.append(rid)
         for rid in to_remove:
             self.remove_relationship(rid)
-        self.nodes.pop(node_id, None)
+        self.nodes.pop(escape_identifier(node_id), None)
 
     def remove_relationship(self, rel_id: str) -> None:
-        self.relationships.pop(rel_id, None)
+        self.relationships.pop(escape_identifier(rel_id), None)
 
 
 if __name__ == "__main__":
+    print(Node(properties={}).to_cypher())
     graph = Graph()
     node1 = Node({"name": "Alice"}, {"Person"}, "alice")
     node2 = Node({"name": "Bob"}, {"Person"}, "bob")

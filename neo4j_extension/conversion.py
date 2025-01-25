@@ -4,7 +4,7 @@ from typing import List as PyList
 from typing import Union
 
 from .abc import Neo4jType
-from .primitives import (
+from .primitive import (
     Neo4jBoolean,
     Neo4jByteArray,
     Neo4jFloat,
@@ -136,11 +136,14 @@ def convert_neo4j_to_python(value: Neo4jType) -> PythonType:
             py_map[k] = convert_neo4j_to_python(v)
         return py_map
 
-    # 나머지는 .value 직접 반환
+    # return .value for all other types
     return value.value
 
 
 def convert_python_to_neo4j(value: PythonType) -> Neo4jType:
+    """
+    Convert a Python basic type to a Neo4jType object.
+    """
     if value is None:
         return Neo4jNull()
     if isinstance(value, bool):
@@ -201,9 +204,22 @@ def ensure_neo4j_type(value: Union[Neo4jType, PythonType]) -> Neo4jType:
     return convert_python_to_neo4j(value)
 
 
+def ensure_python_type(value: Union[Neo4jType, PythonType]) -> PythonType:
+    """
+    Assert that the given value is a Python basic type.
+
+    If the value is a Python basic type, it is returned as is.
+    If the value is a Neo4jType, it is converted to a Python basic type.
+    """
+
+    if isinstance(value, Neo4jType):
+        return convert_neo4j_to_python(value)
+    return value
+
+
 def get_neo4j_property_type_name(val: Neo4jType) -> str:
     """
-    프로퍼티로 저장 가능한지 판단할 때, type 이름 확인용
+    Return the name of the Neo4j property type for the given value.
     """
     if isinstance(val, Neo4jNull):
         return "null"

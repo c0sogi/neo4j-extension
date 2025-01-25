@@ -3,6 +3,7 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from typing import (
     Generic,
+    LiteralString,
     TypeVar,
 )
 
@@ -18,7 +19,7 @@ class Neo4jType(ABC, Generic[T]):
     value: T
 
     @abstractmethod
-    def to_cypher(self) -> str:
+    def to_cypher(self) -> LiteralString:
         """
         Serialize this Python object into a valid Neo4j literal (or function call).
         """
@@ -30,7 +31,7 @@ class Neo4jType(ABC, Generic[T]):
         Parse/deserialize a Neo4j literal (or function call) into this Python object.
         """
 
-    def __repr__(self) -> str:
+    def __repr__(self) -> LiteralString:
         return self.to_cypher()
 
     def __str__(self) -> str:

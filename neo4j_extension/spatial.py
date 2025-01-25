@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import re
-from typing import Optional
+from typing import LiteralString, Optional, cast
 
 from .abc import Neo4jType
 
@@ -25,12 +25,16 @@ class PointValue:
     __slots__ = ("crs", "x", "y", "z")
 
     def __init__(
-        self, crs: str, x: float, y: float, z: Optional[float] = None
+        self,
+        crs: LiteralString,
+        x: float,
+        y: float,
+        z: Optional[float] = None,
     ):
-        self.crs = crs
-        self.x = x
-        self.y = y
-        self.z = z
+        self.crs: LiteralString = crs
+        self.x: float = x
+        self.y: float = y
+        self.z: float | None = z
 
     def __eq__(self, other: object) -> bool:
         if not isinstance(other, PointValue):
@@ -54,10 +58,13 @@ class Neo4jPoint(Neo4jType[PointValue]):
     def __init__(self, value: PointValue):
         self.value = value
 
-    def to_cypher(self) -> str:
-        parts = [f"x: {self.value.x}", f"y: {self.value.y}"]
+    def to_cypher(self) -> LiteralString:
+        parts: list[LiteralString] = [
+            cast(LiteralString, f"x: {self.value.x}"),
+            cast(LiteralString, f"y: {self.value.y}"),
+        ]
         if self.value.z is not None:
-            parts.append(f"z: {self.value.z}")
+            parts.append(cast(LiteralString, f"z: {self.value.z}"))
         parts.append(f"crs: '{self.value.crs}'")
         inner = "{ " + ", ".join(parts) + " }"
         return f"point({inner})"
@@ -77,11 +84,14 @@ class Neo4jPoint(Neo4jType[PointValue]):
         except json.JSONDecodeError as e:
             raise ValueError(f"Invalid point map: {map_str}") from e
 
+        if "x" not in data or "y" not in data:
+            raise ValueError(
+                f"Invalid point map, must contain x,y keys: {cypher_str}"
+            )
         crs = data.get("crs", "cartesian")
         x = float(data["x"])
         y = float(data["y"])
         z = data["z"] if "z" in data else None
         if z is not None:
             z = float(z)
-
         return cls(PointValue(crs=crs, x=x, y=y, z=z))

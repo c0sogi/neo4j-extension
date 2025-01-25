@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import re
 from datetime import date, datetime, time, timedelta
-from typing import Optional
+from typing import LiteralString, Optional, cast
 
 from .abc import Neo4jType
 
@@ -24,8 +24,8 @@ class Neo4jDate(Neo4jType[date]):
     def __init__(self, value: date):
         self.value = value
 
-    def to_cypher(self) -> str:
-        return f"date('{self.value.isoformat()}')"
+    def to_cypher(self) -> LiteralString:
+        return cast(LiteralString, f"date('{self.value.isoformat()}')")
 
     @classmethod
     def from_cypher(cls, cypher_str: str) -> Neo4jDate:
@@ -57,8 +57,8 @@ class Neo4jLocalTime(Neo4jType[time]):
     def __init__(self, value: time):
         self.value = value
 
-    def to_cypher(self) -> str:
-        return f"time('{self.value.isoformat()}')"
+    def to_cypher(self) -> LiteralString:
+        return cast(LiteralString, f"time('{self.value.isoformat()}')")
 
     @classmethod
     def from_cypher(cls, cypher_str: str) -> Neo4jLocalTime:
@@ -98,8 +98,8 @@ class Neo4jLocalDateTime(Neo4jType[datetime]):
             raise ValueError("LocalDateTime should not have tzinfo.")
         self.value = value
 
-    def to_cypher(self) -> str:
-        return f"datetime('{self.value.isoformat()}')"
+    def to_cypher(self) -> LiteralString:
+        return cast(LiteralString, f"datetime('{self.value.isoformat()}')")
 
     @classmethod
     def from_cypher(cls, cypher_str: str) -> Neo4jLocalDateTime:
@@ -139,8 +139,8 @@ class Neo4jZonedTime(Neo4jType[time]):
             raise ValueError("ZonedTime requires a tzinfo (offset).")
         self.value = value
 
-    def to_cypher(self) -> str:
-        return f"time('{self.value.isoformat()}')"
+    def to_cypher(self) -> LiteralString:
+        return cast(LiteralString, f"time('{self.value.isoformat()}')")
 
     @classmethod
     def from_cypher(cls, cypher_str: str) -> Neo4jZonedTime:
@@ -179,8 +179,8 @@ class Neo4jZonedDateTime(Neo4jType[datetime]):
             raise ValueError("ZonedDateTime requires a tzinfo.")
         self.value = value
 
-    def to_cypher(self) -> str:
-        return f"datetime('{self.value.isoformat()}')"
+    def to_cypher(self) -> LiteralString:
+        return cast(LiteralString, f"datetime('{self.value.isoformat()}')")
 
     @classmethod
     def from_cypher(cls, cypher_str: str) -> Neo4jZonedDateTime:
@@ -235,7 +235,7 @@ class Neo4jDuration(Neo4jType[timedelta]):
     def __init__(self, value: timedelta):
         self.value = value
 
-    def to_cypher(self) -> str:
+    def to_cypher(self) -> LiteralString:
         total_seconds = int(self.value.total_seconds())
         micros = self.value.microseconds
         sign = -1 if total_seconds < 0 else 1
@@ -253,7 +253,9 @@ class Neo4jDuration(Neo4jType[timedelta]):
             frac = f"{frac_val}".lstrip("0")
 
         base: str = f"P{days}DT{hours}H{minutes}M{seconds}{frac}S"
-        return f"duration('{'-' if sign < 0 else ''}{base}')"
+        return cast(
+            LiteralString, f"duration('{'-' if sign < 0 else ''}{base}')"
+        )
 
     @classmethod
     def from_cypher(cls, cypher_str: str) -> Neo4jDuration:

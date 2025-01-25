@@ -5,10 +5,11 @@ from typing import LiteralString, cast
 DELIMITERS = {"[", "]", "(", ")", "{", "}", ",", ":", "'", '"'}
 
 
-def _escape_identifier(key: str) -> LiteralString:
+def escape_identifier(key: str) -> LiteralString:
     """
-    Neo4j에서 프로퍼티 키가 유효한 식별자인지 검사하고,
-    만약 식별자 규칙에 맞지 않으면 백틱(`)으로 감싸서 반환한다.
+    Escape a property key for use in a Cypher query.
+    If the key is a valid identifier, it is returned as is.
+    Otherwise, it is escaped with backticks.
     """
     if all(
         unicodedata.category(char).startswith(("L", "N")) or char == "_"
@@ -19,7 +20,7 @@ def _escape_identifier(key: str) -> LiteralString:
     return cast(LiteralString, f"`{escaped}`")
 
 
-def _get_safe_query(query: str, **labels: str) -> LiteralString:
+def get_safe_query(query: LiteralString, **labels: str) -> LiteralString:
     """
     Return a Cypher query with the given labels as parameters.
 
@@ -43,14 +44,14 @@ def _get_safe_query(query: str, **labels: str) -> LiteralString:
     """
 
     s = query.format(
-        **{key: _escape_identifier(value) for key, value in labels.items()}
+        **{key: escape_identifier(value) for key, value in labels.items()}
     )
     return cast(LiteralString, s)
 
 
-def _tokenize_cypher_expression(expr: str) -> PyList[str]:
+def tokenize_cypher_expression(expr: str) -> PyList[str]:
     """
-    매우 단순한 토크나이저 예시
+    Simple Cypher expression tokenizer.
     """
     tokens: PyList[str] = []
     i = 0
@@ -104,9 +105,9 @@ def _tokenize_cypher_expression(expr: str) -> PyList[str]:
     return tokens
 
 
-def _split_by_comma_top_level(tokens: PyList[str]) -> PyList[str]:
+def split_by_comma_top_level(tokens: PyList[str]) -> PyList[str]:
     """
-    최상위 레벨에서만 ','를 구분자로 하여 토큰들을 나눈다.
+    Split tokens by ',' at the top level.
     """
     result: PyList[str] = []
     current_tokens: PyList[str] = []

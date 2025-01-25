@@ -8,9 +8,13 @@ from typing import (
 from typing import (
     List as PyList,
 )
+from typing import (
+    LiteralString,
+    cast,
+)
 
-from ._utils import _split_by_comma_top_level, _tokenize_cypher_expression
 from .abc import Neo4jType
+from .utils import split_by_comma_top_level, tokenize_cypher_expression
 
 LIST_REGEX = re.compile(r"""^\s*\[\s*(.*)\s*\]\s*$""", re.DOTALL)
 MAP_REGEX = re.compile(r"""^\s*\{\s*(.*)\s*\}\s*$""", re.DOTALL)
@@ -28,7 +32,7 @@ class Neo4jNull(Neo4jType[None]):
 
     value: None = None
 
-    def to_cypher(self) -> str:
+    def to_cypher(self) -> LiteralString:
         return "null"
 
     @classmethod
@@ -51,7 +55,7 @@ class Neo4jBoolean(Neo4jType[bool]):
     def __init__(self, value: bool):
         self.value = bool(value)
 
-    def to_cypher(self) -> str:
+    def to_cypher(self) -> LiteralString:
         return "true" if self.value else "false"
 
     @classmethod
@@ -80,8 +84,8 @@ class Neo4jInteger(Neo4jType[int]):
             raise OverflowError("Neo4j INTEGER out of 64-bit range.")
         self.value = value
 
-    def to_cypher(self) -> str:
-        return str(self.value)
+    def to_cypher(self) -> LiteralString:
+        return cast(LiteralString, str(self.value))
 
     @classmethod
     def from_cypher(cls, cypher_str: str) -> Neo4jInteger:
@@ -102,8 +106,8 @@ class Neo4jFloat(Neo4jType[float]):
     def __init__(self, value: float):
         self.value = float(value)
 
-    def to_cypher(self) -> str:
-        return str(self.value)
+    def to_cypher(self) -> LiteralString:
+        return cast(LiteralString, repr(self.value))
 
     @classmethod
     def from_cypher(cls, cypher_str: str) -> Neo4jFloat:
@@ -137,12 +141,12 @@ class Neo4jString(Neo4jType[str]):
     def __init__(self, value: str):
         self.value = value
 
-    def to_cypher(self) -> str:
+    def to_cypher(self) -> LiteralString:
         # 내부 ' -> '' 치환, 역슬래시 등 이스케이프
         escaped = self.value
         escaped = escaped.replace("\\", "\\\\")
         escaped = escaped.replace("'", "''")
-        return f"'{escaped}'"
+        return cast(LiteralString, f"'{escaped}'")
 
     @classmethod
     def from_cypher(cls, cypher_str: str) -> Neo4jString:
@@ -179,9 +183,9 @@ class Neo4jByteArray(Neo4jType[bytes]):
     def __init__(self, value: bytes):
         self.value = value
 
-    def to_cypher(self) -> str:
+    def to_cypher(self) -> LiteralString:
         encoded = base64.b64encode(self.value).decode("ascii")
-        return f"bytearray('{encoded}')"
+        return cast(LiteralString, f"bytearray('{encoded}')")
 
     @classmethod
     def from_cypher(cls, cypher_str: str) -> Neo4jByteArray:
@@ -209,9 +213,8 @@ class Neo4jList(Neo4jType[PyList[Neo4jType]]):
     def __init__(self, value: PyList[Neo4jType]):
         self.value = value
 
-    def to_cypher(self) -> str:
-        elems = [elem.to_cypher() for elem in self.value]
-        return "[" + ", ".join(elems) + "]"
+    def to_cypher(self) -> LiteralString:
+        return "[" + ", ".join(elem.to_cypher() for elem in self.value) + "]"
 
     @classmethod
     def from_cypher(cls, cypher_str: str) -> Neo4jList:
@@ -224,8 +227,8 @@ class Neo4jList(Neo4jType[PyList[Neo4jType]]):
         if not inner:
             return cls([])
 
-        tokens = _tokenize_cypher_expression(inner)
-        elements_str_list = _split_by_comma_top_level(tokens)
+        tokens = tokenize_cypher_expression(inner)
+        elements_str_list = split_by_comma_top_level(tokens)
         parsed_elems = [
             convert_cypher_to_neo4j(elem_str)
             for elem_str in elements_str_list
@@ -274,8 +277,8 @@ class Neo4jMap(Neo4jType[PyDict[str, Neo4jType]]):
     def __init__(self, value: PyDict[str, Neo4jType]):
         self.value = value
 
-    def to_cypher(self) -> str:
-        parts = []
+    def to_cypher(self) -> LiteralString:
+        parts: PyList[LiteralString] = []
         for k, v in self.value.items():
             # key는 안전하게 문자열 리터럴로
             k_cypher = Neo4jString(k).to_cypher()
@@ -294,12 +297,12 @@ class Neo4jMap(Neo4jType[PyDict[str, Neo4jType]]):
         if not inner:
             return cls({})
 
-        tokens = _tokenize_cypher_expression(inner)
-        elements_str_list = _split_by_comma_top_level(tokens)
+        tokens = tokenize_cypher_expression(inner)
+        elements_str_list = split_by_comma_top_level(tokens)
         result: PyDict[str, Neo4jType] = {}
 
         for pair_str in elements_str_list:
-            pair_tokens = _tokenize_cypher_expression(pair_str)
+            pair_tokens = tokenize_cypher_expression(pair_str)
             try:
                 colon_index = pair_tokens.index(":")
             except ValueError:

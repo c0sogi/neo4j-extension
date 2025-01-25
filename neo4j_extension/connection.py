@@ -34,7 +34,6 @@ from neo4j import (
     Session,
 )
 
-from ._utils import _escape_identifier
 from .graph import Graph, Node, Relationship
 
 if TYPE_CHECKING:
@@ -59,8 +58,6 @@ if TYPE_CHECKING:
         notifications_disabled_classifications: Optional[
             Iterable[neo4j._api.T_NotificationDisabledCategory]
         ]
-        # undocumented/unsupported options
-        # they may be change or removed any time without prior notice
         initial_retry_delay: float
         retry_delay_multiplier: float
         retry_delay_jitter_factor: float
@@ -367,6 +364,7 @@ class Neo4jConnection:
     protocol: str = "neo4j"
     driver: Optional[Driver] = None
     async_driver: Optional[AsyncDriver] = None
+
     driver_kwargs: DriverKwargs = field(default_factory=DriverKwargs)
     async_driver_kwargs: AsyncDriverKwargs = field(
         default_factory=AsyncDriverKwargs
@@ -446,16 +444,6 @@ class Neo4jConnection:
     async def __aexit__(self, *args: Any) -> None:
         await self.aclose()
 
-    @with_session.readwrite_transaction
-    def clear_all(self, tx: ManagedTransaction) -> None:
-        """Clear all data in the database"""
-        tx.run("MATCH (n) DETACH DELETE n")
-
-    @with_async_session.readwrite_transaction
-    async def aclear_all(self, tx: AsyncManagedTransaction) -> None:
-        """Clear all data in the database"""
-        await tx.run("MATCH (n) DETACH DELETE n")
-
     @property
     @with_session.scope
     def graph_schema(
@@ -484,8 +472,7 @@ class Neo4jConnection:
             params={"EXCLUDED_RELS": excluded_rels},
         )
         relationships_res = run_query(
-            query=REL_QUERY,
-            params={"EXCLUDED_LABELS": excluded_labels},
+            query=REL_QUERY, params={"EXCLUDED_LABELS": excluded_labels}
         )
 
         try:
@@ -512,10 +499,7 @@ class Neo4jConnection:
                 for item in rel_properties_res
             },
             "relationships": [item["output"] for item in relationships_res],
-            "metadata": {
-                "constraint": constraint_res,
-                "index": index_res,
-            },
+            "metadata": {"constraint": constraint_res, "index": index_res},
         }
         return structured_schema
 
@@ -526,7 +510,6 @@ class Neo4jConnection:
     @staticmethod
     def format_graph_schema(graph_schema: GraphSchema) -> str:
         lines: list[str] = []
-
         lines.append("### Node properties")
         node_props: dict[str, list[Prop]] = graph_schema.get(
             "node_props", {}
@@ -535,68 +518,47 @@ class Neo4jConnection:
             lines.append(f"- {label}")
             for p in props:
                 lines.append(f"  * {p['property']}: {p['type']}")
-
         lines.append("\n### Relationship properties")
         rel_props: dict[str, list[Prop]] = graph_schema.get("rel_props", {})
         for rtype, rprops in rel_props.items():
             lines.append(f"- {rtype}")
             for rp in rprops:
                 lines.append(f"  * {rp['property']}: {rp['type']}")
-
         lines.append("\n### Relationships")
         rels = graph_schema.get("relationships", [])
         for rel_dict in rels:
             lines.append(
                 f"- (:{rel_dict['start']})-[:{rel_dict['type']}]->(:{rel_dict['end']})"
             )
+
         return "\n".join(lines)
 
     def _do_upsert_node(self, tx: ManagedTransaction, node: Node) -> dict:
         """
-        Merge node based on globalId in a transaction (if exists).
-        If globalId is None, create a new node.
-        Use temporary label 'NoLabel' if no label is present.
+        Merge node based on globalId if present. 라벨로 매칭하지 않고, globalId만 사용.
+        라벨은 이후에 'SET n:SomeLabel' 형태로 붙임.
         """
-
-        # 1) 라벨 문자열 구성
-        label_str = (
-            ":".join(_escape_identifier(i) for i in sorted(node.labels))
-            if node.labels
-            else "NoLabel"
-        )
-
-        # 2) globalId가 있는 경우: upsert
         if node.globalId:
-            # # 2-1) 라벨에 대한 globalId 유니크 제약 보장
-            # ensure_unique_constraint_for_label(tx, label_str)
-
-            # 2-2) MERGE로 upsert
-            # 여기서는 예시로 기존 프로퍼티를 유지하고 새 props만 덮어씀(SET n += ...)
-            # 만약 완전히 교체하고 싶다면 SET n = $props 로 변경 가능
-            query = f"""
-            MERGE (n:{label_str} {{ globalId: $globalId }})
-            ON CREATE SET n.createdAt = timestamp()
-            ON MATCH SET  n.updatedAt = timestamp()
-            SET n += $props
-            RETURN n
+            # globalId만으로 MERGE
+            query: LiteralString = f"""
+                MERGE (n {{ globalId: $globalId }})
+                ON CREATE SET n.createdAt = timestamp()
+                ON MATCH  SET n.updatedAt = timestamp()
+                SET n += $props
+                SET n:{node.label_str}
+                RETURN n
             """
             result = tx.run(
-                query,
-                globalId=node.globalId,
-                props=node.to_python_props(),
+                query, globalId=node.globalId, props=node.to_python_props()
             ).single()
-
-        # 3) globalId가 없는 경우: 단순 CREATE
         else:
+            # globalId 없으면 CREATE
             query = f"""
-            CREATE (n:{label_str})
-            SET n = $props
-            RETURN n
+                CREATE (n:{node.label_str})
+                SET n = $props
+                RETURN n
             """
-            result = tx.run(
-                query,
-                props=node.to_python_props(),
-            ).single()
+            result = tx.run(query, props=node.to_python_props()).single()
 
         return result["n"] if result else {}
 
@@ -604,49 +566,24 @@ class Neo4jConnection:
         self, tx: ManagedTransaction, relationship: Relationship
     ) -> dict:
         """
-        Merge relationship based on relationship.globalId in a transaction (if exists).
-        Upsert start_node, end_node first in the same transaction.
-        Use temporary label "NoLabel" if no label is present.
+        Merge relationship based on relationship.globalId if present, using the relationship type.
+        Upsert start_node, end_node first with globalId only.
         """
-
-        # 1. 먼저 관계의 start_node, end_node를 upsert
+        # [변경됨!] start_node, end_node도 label 없이 { globalId: ~ }로 매칭
         self._do_upsert_node(tx, relationship.start_node)
         self._do_upsert_node(tx, relationship.end_node)
 
-        # 2. 관계 양 끝 노드의 라벨 문자열 만들기
-        start_labels = (
-            ":".join(
-                _escape_identifier(i)
-                for i in sorted(relationship.start_node.labels)
-            )
-            or "NoLabel"
-        )
-        end_labels = (
-            ":".join(
-                _escape_identifier(i)
-                for i in sorted(relationship.end_node.labels)
-            )
-            or "NoLabel"
-        )
+        rel_type: LiteralString = relationship.rel_type
 
-        # rel_type(예: "KNOWS") 이스케이프
-        rel_type = _escape_identifier(relationship.rel_type)
-
-        # 3. rel upsert (globalId 여부에 따라 분기)
         if relationship.globalId:
-            # # (옵션) 관계에 대한 globalId 유니크 제약 보장
-            # ensure_unique_constraint_for_relationship(tx, rel_type)
-
-            # MERGE 쿼리: start/end 노드 찾고 -> 관계를 MERGE
-            # 글로벌 아이디가 있으면 (start)-[r:TYPE {globalId: $globalId}]->(end)
-            query = f"""
-            MATCH (start:{start_labels} {{globalId: $startNodeGlobalId}})
-            MATCH (end:{end_labels} {{globalId: $endNodeGlobalId}})
-            MERGE (start)-[r:{rel_type} {{ globalId: $relGlobalId }}]->(end)
-            ON CREATE SET r.createdAt = timestamp()
-            ON MATCH  SET r.updatedAt = timestamp()
-            SET r += $props
-            RETURN r
+            query: LiteralString = f"""
+                MATCH (start {{globalId: $startNodeGlobalId}})
+                MATCH (end   {{globalId: $endNodeGlobalId}})
+                MERGE (start)-[r:{rel_type} {{ globalId: $relGlobalId }}]->(end)
+                ON CREATE SET r.createdAt = timestamp()
+                ON MATCH  SET r.updatedAt = timestamp()
+                SET r += $props
+                RETURN r
             """
             result = tx.run(
                 query,
@@ -655,16 +592,14 @@ class Neo4jConnection:
                 relGlobalId=relationship.globalId,
                 props=relationship.to_python_props(),
             ).single()
-
         else:
-            # globalId가 없으면 그냥 새 관계를 생성
-            # (만약 '중복 생성'이 문제라면, globalId를 필수로 하거나 다른 식별자를 도입해야 함)
+            # globalId 없는 관계면 무조건 CREATE
             query = f"""
-            MATCH (start:{start_labels} {{globalId: $startNodeGlobalId}})
-            MATCH (end:{end_labels} {{globalId: $endNodeGlobalId}})
-            CREATE (start)-[r:{rel_type}]->(end)
-            SET r = $props
-            RETURN r
+                MATCH (start {{globalId: $startNodeGlobalId}})
+                MATCH (end   {{globalId: $endNodeGlobalId}})
+                CREATE (start)-[r:{rel_type}]->(end)
+                SET r = $props
+                RETURN r
             """
             result = tx.run(
                 query,
@@ -674,6 +609,16 @@ class Neo4jConnection:
             ).single()
 
         return result["r"] if result else {}
+
+    @with_session.readwrite_transaction
+    def clear_all(self, tx: ManagedTransaction) -> None:
+        """Clear all data in the database"""
+        tx.run("MATCH (n) DETACH DELETE n")
+
+    @with_async_session.readwrite_transaction
+    async def aclear_all(self, tx: AsyncManagedTransaction) -> None:
+        """Clear all data in the database"""
+        await tx.run("MATCH (n) DETACH DELETE n")
 
     @with_session.readwrite_transaction
     def upsert_node(self, tx: ManagedTransaction, node: Node) -> dict:
@@ -692,78 +637,7 @@ class Neo4jConnection:
         """
         Upsert all Node, Relationship in a Graph within a single transaction.
         """
-        # 1) 모든 노드 업서트
         for node in graph.nodes.values():
             self._do_upsert_node(tx, node)
-
-        # 2) 모든 관계 업서트
         for rel in graph.relationships.values():
             self._do_upsert_relationship(tx, rel)
-
-
-# def ensure_unique_constraint_for_label(
-#     tx: ManagedTransaction, label_str: LiteralString
-# ) -> None:
-#     """
-#     Neo4j 5.26+ 환경에서, 주어진 라벨 label_str에 대해
-#     'globalId' 필드가 유일해야 함을 보장하는 UNIQUE CONSTRAINT를
-#     '이미 없으면' 생성한다.
-#     """
-
-#     # Neo4j 5.26+에서는 SHOW CONSTRAINTS로 특정 constraint 정보를 조회할 수 있음
-#     check_query = """
-#     SHOW CONSTRAINTS
-#     YIELD name, type, entityType, labelsOrTypes, properties
-#     WHERE type = 'UNIQUENESS'
-#       AND entityType = 'NODE'
-#       AND $label IN labelsOrTypes
-#       AND 'globalId' IN properties
-#     """
-#     constraints = tx.run(check_query, label=label_str).data()
-#     if not constraints:
-#         # 만약 해당 라벨+globalId에 대한 유니크 제약이 없다면 새로 생성
-#         # 'IF NOT EXISTS'는 4.4+ 부터 지원하므로 5.26+ 에서도 문제 없음
-#         create_query = f"""
-#         CREATE CONSTRAINT {generate_constraint_name(label_str)} IF NOT EXISTS
-#         FOR (n:{label_str})
-#         REQUIRE n.globalId IS UNIQUE
-#         """
-#         tx.run(create_query)
-
-
-# def ensure_unique_constraint_for_relationship(
-#     tx: ManagedTransaction, rel_type: LiteralString
-# ) -> None:
-#     """
-#     주어진 rel_type에 대해 관계(globalId)가 유일해야 함을 보장하는
-#     UNIQUE CONSTRAINT를 '이미 없으면' 생성한다.
-#     (Neo4j 5.26+)
-#     """
-
-#     # rel_type(예: "KNOWS")에 대한 관계 유니크 제약이 존재하는지 확인
-#     check_query = """
-#     SHOW CONSTRAINTS
-#     YIELD name, type, entityType, labelsOrTypes, properties
-#     WHERE type = 'UNIQUENESS'
-#       AND entityType = 'RELATIONSHIP'
-#       AND $rel_type IN labelsOrTypes
-#       AND 'globalId' IN properties
-#     """
-#     constraints = tx.run(check_query, rel_type=rel_type).data()
-
-#     if not constraints:
-#         # 없다면 새로 생성
-#         # 관계 유형 rel_type, 프로퍼티 globalId에 대해 UNIQUE 제약
-#         create_query = f"""
-#         CREATE CONSTRAINT {generate_constraint_name(rel_type)} IF NOT EXISTS
-#         FOR ()-[r:{rel_type}]-()
-#         REQUIRE r.globalId IS UNIQUE
-#         """
-#         tx.run(create_query)
-
-
-# def generate_constraint_name(label_str: LiteralString) -> LiteralString:
-#     # 콜론을 언더스코어로 치환
-#     # Actor:Person:TEST -> Actor_Person_TEST_globalId_unique
-#     clean_label = label_str.replace(":", "_")
-#     return f"{clean_label}_globalId_unique"
