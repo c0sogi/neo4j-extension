@@ -1,0 +1,1872 @@
+### neo4j_extension\abc.py
+from __future__ import annotations
+from abc import ABC, abstractmethod
+from typing import Generic, LiteralString, TypeVar
+T = TypeVar('T')
+
+class Neo4jType(ABC, Generic[T]):
+    """
+    Base class for Python representations of specific types
+    that can be stored in or returned from Neo4j via Neo4j.
+    """
+    value: T
+
+    @abstractmethod
+    def to_cypher(self) -> LiteralString:
+        """
+        Serialize this Python object into a valid Neo4j literal (or function call).
+        """
+
+    @classmethod
+    @abstractmethod
+    def from_cypher(cls, cypher_str: str) -> Neo4jType:
+        """
+        Parse/deserialize a Neo4j literal (or function call) into this Python object.
+        """
+
+    def __repr__(self) -> LiteralString:
+        return self.to_cypher()
+
+    def __str__(self) -> str:
+        return str(self.value)
+
+    def __eq__(self, other: object) -> bool:
+        return isinstance(other, self.__class__) and self.value == getattr(other, 'value', None)
+
+==========
+
+### neo4j_extension\connection.py
+import logging
+from dataclasses import dataclass, field
+from functools import wraps
+from os import environ
+from typing import TYPE_CHECKING, Any, Awaitable, Callable, Concatenate, Final, Iterable, Literal, LiteralString, Optional, ParamSpec, Self, TypeAlias, TypedDict, TypeVar, cast
+import neo4j
+import neo4j.auth_management
+from neo4j import AsyncDriver, AsyncGraphDatabase, AsyncManagedTransaction, AsyncSession, Driver, GraphDatabase, ManagedTransaction, Session
+from .conversion import ensure_python_type
+from .graph import Graph, Node, Relationship
+from .typing import GraphSchema, Property
+from .utils import escape_identifier
+if TYPE_CHECKING:
+    import ssl
+
+    class SessionKwargs(TypedDict, total=False):
+        connection_acquisition_timeout: float
+        max_transaction_retry_time: float
+        database: Optional[str]
+        fetch_size: int
+        impersonated_user: Optional[str]
+        bookmarks: Optional[Iterable[str] | neo4j.api.Bookmarks]
+        default_access_mode: str
+        bookmark_manager: Optional[neo4j.api.BookmarkManager]
+        auth: neo4j.api._TAuth
+        notifications_min_severity: Optional[neo4j._api.T_NotificationMinimumSeverity]
+        notifications_disabled_categories: Optional[Iterable[neo4j._api.T_NotificationDisabledCategory]]
+        notifications_disabled_classifications: Optional[Iterable[neo4j._api.T_NotificationDisabledCategory]]
+        initial_retry_delay: float
+        retry_delay_multiplier: float
+        retry_delay_jitter_factor: float
+
+    class DriverKwargs(TypedDict, total=False):
+        uri: str
+        auth: neo4j.api._TAuth | neo4j.auth_management.AuthManager
+        max_connection_lifetime: float
+        liveness_check_timeout: Optional[float]
+        max_connection_pool_size: int
+        connection_timeout: float
+        trust: Literal['TRUST_ALL_CERTIFICATES', 'TRUST_SYSTEM_CA_SIGNED_CERTIFICATES']
+        resolver: Callable[[neo4j.addressing.Address], Iterable[neo4j.addressing.Address]] | Callable[[neo4j.addressing.Address], Iterable[neo4j.addressing.Address]]
+        encrypted: bool
+        trusted_certificates: neo4j.security.TrustStore
+        client_certificate: Optional[neo4j.security.ClientCertificate | neo4j.security.ClientCertificateProvider]
+        ssl_context: Optional[ssl.SSLContext]
+        user_agent: str
+        keep_alive: bool
+        notifications_min_severity: Optional[neo4j._api.T_NotificationMinimumSeverity]
+        notifications_disabled_categories: Optional[Iterable[neo4j._api.T_NotificationDisabledCategory]]
+        notifications_disabled_classifications: Optional[Iterable[neo4j._api.T_NotificationDisabledCategory]]
+        warn_notification_severity: Optional[neo4j._api.T_NotificationMinimumSeverity]
+        telemetry_disabled: bool
+        connection_acquisition_timeout: float
+        max_transaction_retry_time: float
+        initial_retry_delay: float
+        retry_delay_multiplier: float
+        retry_delay_jitter_factor: float
+        database: Optional[str]
+        fetch_size: int
+        impersonated_user: Optional[str]
+        bookmark_manager: Optional[neo4j.api.BookmarkManager]
+
+    class AsyncDriverKwargs(TypedDict, total=False):
+        uri: str
+        auth: neo4j.api._TAuth | neo4j.auth_management.AsyncAuthManager
+        max_connection_lifetime: float
+        liveness_check_timeout: Optional[float]
+        max_connection_pool_size: int
+        connection_timeout: float
+        trust: Literal['TRUST_ALL_CERTIFICATES', 'TRUST_SYSTEM_CA_SIGNED_CERTIFICATES']
+        resolver: Callable[[neo4j.addressing.Address], Iterable[neo4j.addressing.Address]] | Callable[[neo4j.addressing.Address], Iterable[neo4j.addressing.Address]]
+        encrypted: bool
+        trusted_certificates: neo4j.security.TrustStore
+        client_certificate: Optional[neo4j.security.ClientCertificate | neo4j.security.ClientCertificateProvider]
+        ssl_context: Optional[ssl.SSLContext]
+        user_agent: str
+        keep_alive: bool
+        notifications_min_severity: Optional[neo4j._api.T_NotificationMinimumSeverity]
+        notifications_disabled_categories: Optional[Iterable[neo4j._api.T_NotificationDisabledCategory]]
+        notifications_disabled_classifications: Optional[Iterable[neo4j._api.T_NotificationDisabledCategory]]
+        warn_notification_severity: Optional[neo4j._api.T_NotificationMinimumSeverity]
+        telemetry_disabled: bool
+        connection_acquisition_timeout: float
+        max_transaction_retry_time: float
+        initial_retry_delay: float
+        retry_delay_multiplier: float
+        retry_delay_jitter_factor: float
+        database: Optional[str]
+        fetch_size: int
+        impersonated_user: Optional[str]
+        bookmark_manager: Optional[neo4j.api.BookmarkManager]
+else:
+    SessionKwargs: TypeAlias = dict
+    DriverKwargs: TypeAlias = dict
+    AsyncDriverKwargs: TypeAlias = dict
+NODE_PROPERTIES_QUERY: Final = '\nCALL apoc.meta.data()\nYIELD label, other, elementType, type, property\nWHERE NOT type = "RELATIONSHIP"\n    AND elementType = "node"\n    AND NOT label IN $EXCLUDED_LABELS\nWITH label AS nodeLabels, collect({property: property, type: type}) AS properties\nRETURN {labels: nodeLabels, properties: properties} AS output\n'
+REL_PROPERTIES_QUERY: Final = '\nCALL apoc.meta.data()\nYIELD label, other, elementType, type, property\nWHERE NOT type = "RELATIONSHIP"\n    AND elementType = "relationship"\n    AND NOT label IN $EXCLUDED_RELS\nWITH label AS nodeLabels, collect({property: property, type: type}) AS properties\nRETURN {type: nodeLabels, properties: properties} AS output\n'
+REL_QUERY: Final = '\nCALL apoc.meta.data()\nYIELD label, other, elementType, type, property\nWHERE type = "RELATIONSHIP"\n    AND elementType = "node"\nUNWIND other AS other_node\nWITH *\nWHERE NOT label IN $EXCLUDED_LABELS\n    AND NOT other_node IN $EXCLUDED_LABELS\nRETURN {start: label, type: property, end: toString(other_node)} AS output\n'
+INDEX_RES_QUERY: Final = "\nCALL apoc.schema.nodes()\nYIELD label, properties, type, size, valuesSelectivity\nWHERE type = 'RANGE'\nRETURN *, size * valuesSelectivity as distinctValues\n"
+ENV_NEO4J_HOST: str = environ.get('NEO4J_HOST', 'localhost')
+ENV_NEO4J_USER: str = environ.get('NEO4J_USER', 'neo4j')
+ENV_NEO4J_PASSWORD: str = environ.get('NEO4J_PASSWORD', '')
+ENV_NEO4J_PORT: str = environ.get('NEO4J_PORT', '7474')
+ENV_NEO4J_BOLT_PORT: str = environ.get('NEO4J_BOLT_PORT', '7687')
+P = ParamSpec('P')
+T = TypeVar('T')
+Neo4j = TypeVar('Neo4j', bound='Neo4jConnection')
+logger = logging.getLogger(__name__)
+logging.basicConfig(level=logging.INFO, format='%(asctime)s [%(levelname)s] %(message)s')
+
+class with_session:
+    """
+    동기용 데코레이터 모음.
+    """
+
+    @staticmethod
+    def scope(method: Callable[Concatenate[Neo4j, Session, P], T]) -> Callable[Concatenate[Neo4j, P], T]:
+
+        @wraps(method)
+        def wrapper(self: Neo4j, *args: P.args, **kwargs: P.kwargs) -> T:
+            with self.connection.session(**self.session_kwargs) as session:
+                return method(self, session, *args, **kwargs)
+        return wrapper
+
+    @staticmethod
+    def readwrite_transaction(method: Callable[Concatenate[Neo4j, ManagedTransaction, P], T]) -> Callable[Concatenate[Neo4j, P], T]:
+
+        @wraps(method)
+        def wrapper(self: Neo4j, *args: P.args, **kwargs: P.kwargs) -> T:
+            with self.connection.session(**self.session_kwargs) as session:
+                return session.execute_write(lambda tx: method(self, tx, *args, **kwargs))
+        return wrapper
+
+    @staticmethod
+    def readonly_transaction(method: Callable[Concatenate[Neo4j, ManagedTransaction, P], T]) -> Callable[Concatenate[Neo4j, P], T]:
+
+        @wraps(method)
+        def wrapper(self: Neo4j, *args: P.args, **kwargs: P.kwargs) -> T:
+            with self.connection.session(**self.session_kwargs) as session:
+                return session.execute_read(lambda tx: method(self, tx, *args, **kwargs))
+        return wrapper
+
+class with_async_session:
+    """
+    비동기용 데코레이터 모음.
+    """
+
+    @staticmethod
+    def scope(method: Callable[Concatenate[Neo4j, AsyncSession, P], Awaitable[T]]) -> Callable[Concatenate[Neo4j, P], Awaitable[T]]:
+
+        @wraps(method)
+        async def wrapper(self: Neo4j, *args: P.args, **kwargs: P.kwargs) -> T:
+            async with (await self.aconnection).session(**self.session_kwargs) as session:
+                return await method(self, session, *args, **kwargs)
+        return wrapper
+
+    @staticmethod
+    def readwrite_transaction(method: Callable[Concatenate[Neo4j, AsyncManagedTransaction, P], Awaitable[T]]) -> Callable[Concatenate[Neo4j, P], Awaitable[T]]:
+
+        @wraps(method)
+        async def wrapper(self: Neo4j, *args: P.args, **kwargs: P.kwargs) -> T:
+            async with (await self.aconnection).session(**self.session_kwargs) as session:
+                return await session.execute_write(lambda tx: method(self, tx, *args, **kwargs))
+        return wrapper
+
+    @staticmethod
+    def readonly_transaction(method: Callable[Concatenate[Neo4j, AsyncManagedTransaction, P], Awaitable[T]]) -> Callable[Concatenate[Neo4j, P], Awaitable[T]]:
+
+        @wraps(method)
+        async def wrapper(self: Neo4j, *args: P.args, **kwargs: P.kwargs) -> T:
+            async with (await self.aconnection).session(**self.session_kwargs) as session:
+                return await session.execute_read(lambda tx: method(self, tx, *args, **kwargs))
+        return wrapper
+
+@dataclass
+class Neo4jConnection:
+    """
+    Neo4j Connection
+
+    Attributes:
+        host: str
+        port: str
+        password: str
+        user: str
+        protocol: str
+        driver: Optional[Driver]
+        async_driver: Optional[AsyncDriver]
+        driver_kwargs: DriverKwargs
+        async_driver_kwargs: AsyncDriverKwargs
+        session_kwargs: SessionKwargs
+    """
+    host: str = ENV_NEO4J_HOST
+    port: str = ENV_NEO4J_BOLT_PORT
+    password: str = ENV_NEO4J_PASSWORD
+    user: str = ENV_NEO4J_USER
+    protocol: str = 'neo4j'
+    driver: Optional[Driver] = None
+    async_driver: Optional[AsyncDriver] = None
+    driver_kwargs: DriverKwargs = field(default_factory=DriverKwargs)
+    async_driver_kwargs: AsyncDriverKwargs = field(default_factory=AsyncDriverKwargs)
+    session_kwargs: SessionKwargs = field(default_factory=SessionKwargs)
+
+    def connect(self) -> Driver:
+        driver_kwargs: DriverKwargs = self.driver_kwargs.copy()
+        if 'uri' not in driver_kwargs:
+            driver_kwargs['uri'] = self.uri
+        if 'auth' not in driver_kwargs:
+            driver_kwargs['auth'] = self.auth
+        logger.info(f'neo4j::connecting to `{self.uri}` ...')
+        self.driver = GraphDatabase.driver(**driver_kwargs)
+        self.driver.verify_connectivity()
+        logger.info(f'neo4j::connected to `{self.uri}`')
+        return self.driver
+
+    async def aconnect(self) -> AsyncDriver:
+        async_driver_kwargs: AsyncDriverKwargs = self.async_driver_kwargs.copy()
+        if 'uri' not in async_driver_kwargs:
+            async_driver_kwargs['uri'] = self.uri
+        if 'auth' not in async_driver_kwargs:
+            async_driver_kwargs['auth'] = self.auth
+        logger.info(f'neo4j::connecting to `{self.uri}` ...')
+        self.async_driver = AsyncGraphDatabase.driver(**async_driver_kwargs)
+        await self.async_driver.verify_connectivity()
+        logger.info(f'neo4j::connected to `{self.uri}`')
+        return self.async_driver
+
+    @property
+    def connection(self) -> Driver:
+        if self.driver is None:
+            return self.connect()
+        return self.driver
+
+    @property
+    async def aconnection(self) -> AsyncDriver:
+        if self.async_driver is None:
+            return await self.aconnect()
+        return self.async_driver
+
+    @property
+    def uri(self) -> str:
+        return f'{self.protocol}://{self.host}:{self.port}'
+
+    @property
+    def auth(self) -> tuple[str, str]:
+        return (self.user, self.password)
+
+    def close(self) -> None:
+        if self.driver is not None:
+            self.driver.close()
+            self.driver = None
+            logger.info(f'neo4j::closed connection to `{self.uri}`')
+
+    async def aclose(self) -> None:
+        if self.async_driver is not None:
+            await self.async_driver.close()
+            self.async_driver = None
+            logger.info(f'neo4j::closed connection to `{self.uri}`')
+
+    def __enter__(self) -> Self:
+        return self
+
+    def __exit__(self, *args: Any) -> None:
+        self.close()
+
+    async def __aenter__(self) -> Self:
+        await self.aconnect()
+        return self
+
+    async def __aexit__(self, *args: Any) -> None:
+        await self.aclose()
+
+    @with_session.scope
+    def get_graph_schema(self, session: Session, excluded_labels: Optional[list[str]]=None, excluded_rels: Optional[list[str]]=None) -> GraphSchema:
+        if excluded_labels is None:
+            excluded_labels = ['_Bloom_Perspective_', '_Bloom_Scene_']
+        if excluded_rels is None:
+            excluded_rels = ['_Bloom_HAS_SCENE_']
+
+        def run_query(query: str, params: Optional[dict[str, Any]]=None) -> list[dict[str, Any]]:
+            result = session.run(cast(LiteralString, query), params or {})
+            return [record.data() for record in result]
+        node_properties_res = run_query(query=NODE_PROPERTIES_QUERY, params={'EXCLUDED_LABELS': excluded_labels})
+        rel_properties_res = run_query(query=REL_PROPERTIES_QUERY, params={'EXCLUDED_RELS': excluded_rels})
+        relationships_res = run_query(query=REL_QUERY, params={'EXCLUDED_LABELS': excluded_labels})
+        try:
+            constraint_res: list[dict[str, Any]] = run_query('SHOW CONSTRAINTS')
+        except neo4j.exceptions.Neo4jError as e:
+            logger.warning(f'Cannot read constraints: {e}')
+            constraint_res = []
+        try:
+            index_res = run_query(INDEX_RES_QUERY)
+        except neo4j.exceptions.Neo4jError as e:
+            logger.warning(f'Cannot read indexes: {e}')
+            index_res = []
+        structured_schema: GraphSchema = {'node_props': {item['output']['labels']: item['output']['properties'] for item in node_properties_res}, 'rel_props': {item['output']['type']: item['output']['properties'] for item in rel_properties_res}, 'relationships': [item['output'] for item in relationships_res], 'metadata': {'constraint': constraint_res, 'index': index_res}}
+        return structured_schema
+
+    def get_formatted_graph_schema(self, excluded_labels: Optional[list[str]]=None, excluded_rels: Optional[list[str]]=None) -> str:
+        return self.format_graph_schema(self.get_graph_schema(excluded_labels=excluded_labels, excluded_rels=excluded_rels))
+
+    @staticmethod
+    def format_graph_schema(graph_schema: GraphSchema) -> str:
+        lines: list[str] = []
+        lines.append('### Node properties')
+        node_props: dict[str, list[Property]] = graph_schema.get('node_props', {})
+        for label, props in node_props.items():
+            lines.append(f'- {label}')
+            for p in props:
+                lines.append(f'  * {p['property']}: {p['type']}')
+        lines.append('\n### Relationship properties')
+        rel_props: dict[str, list[Property]] = graph_schema.get('rel_props', {})
+        for rtype, rprops in rel_props.items():
+            lines.append(f'- {rtype}')
+            for rp in rprops:
+                lines.append(f'  * {rp['property']}: {rp['type']}')
+        lines.append('\n### Relationships')
+        rels = graph_schema.get('relationships', [])
+        for rel_dict in rels:
+            lines.append(f'- (:{rel_dict['start']})-[:{rel_dict['type']}]->(:{rel_dict['end']})')
+        return '\n'.join(lines)
+
+    def _do_upsert_node(self, tx: ManagedTransaction, node: Node) -> dict:
+        """
+        Merge node based on globalId if present.
+        """
+        if node.globalId:
+            query: LiteralString = f'\n                MERGE (n {{ globalId: $globalId }})\n                SET n += $props\n                SET n:{node.safe_labelstring}\n                RETURN n\n            '
+            result = tx.run(query, globalId=node.globalId, props=node.to_python_props()).single()
+        else:
+            query: LiteralString = f'\n                CREATE (n:{node.safe_labelstring})\n                SET n = $props\n                RETURN n\n            '
+            result = tx.run(query, props=node.to_python_props()).single()
+        return result['n'] if result else {}
+
+    def _do_upsert_relationship(self, tx: ManagedTransaction, relationship: Relationship) -> dict:
+        """
+        Merge relationship based on relationship.globalId if present.
+        Upsert start_node, end_node first with globalId only.
+        """
+        self._do_upsert_node(tx, relationship.start_node)
+        self._do_upsert_node(tx, relationship.end_node)
+        if relationship.globalId:
+            query: LiteralString = f'\n                MATCH (start {{globalId: $startNodeGlobalId}})\n                MATCH (end   {{globalId: $endNodeGlobalId}})\n                MERGE (start)-[r:{escape_identifier(relationship.rel_type)} {{ globalId: $relGlobalId }}]->(end)\n                SET r += $props\n                RETURN r\n            '
+            result = tx.run(query, startNodeGlobalId=relationship.start_node.globalId, endNodeGlobalId=relationship.end_node.globalId, relGlobalId=relationship.globalId, props=relationship.to_python_props()).single()
+        else:
+            query: LiteralString = f'\n                MATCH (start {{globalId: $startNodeGlobalId}})\n                MATCH (end   {{globalId: $endNodeGlobalId}})\n                CREATE (start)-[r:{escape_identifier(relationship.rel_type)}]->(end)\n                SET r = $props\n                RETURN r\n            '
+            result = tx.run(query, startNodeGlobalId=relationship.start_node.globalId, endNodeGlobalId=relationship.end_node.globalId, props=relationship.to_python_props()).single()
+        return result['r'] if result else {}
+
+    @with_session.readwrite_transaction
+    def clear_all(self, tx: ManagedTransaction) -> None:
+        """Clear all data in the database"""
+        tx.run('MATCH (n) DETACH DELETE n')
+
+    @with_async_session.readwrite_transaction
+    async def aclear_all(self, tx: AsyncManagedTransaction) -> None:
+        """Clear all data in the database (async)"""
+        await tx.run('MATCH (n) DETACH DELETE n')
+
+    @with_session.readwrite_transaction
+    def upsert_node(self, tx: ManagedTransaction, node: Node) -> dict:
+        """Upsert a node in a transaction"""
+        return self._do_upsert_node(tx, node)
+
+    @with_session.readwrite_transaction
+    def upsert_relationship(self, tx: ManagedTransaction, rel: Relationship) -> dict:
+        """Upsert a relationship in a transaction"""
+        return self._do_upsert_relationship(tx, rel)
+
+    @with_session.readwrite_transaction
+    def upsert_graph(self, tx: ManagedTransaction, graph: Graph) -> None:
+        """
+        Upsert all Node, Relationship in a Graph within a single transaction.
+        """
+        for node in graph.nodes.values():
+            self._do_upsert_node(tx, node)
+        for rel in graph.relationships.values():
+            self._do_upsert_relationship(tx, rel)
+
+    @with_session.readonly_transaction
+    def find_node_by_global_id(self, tx: ManagedTransaction, global_id: str) -> Optional[Node]:
+        """
+        주어진 global_id를 가진 노드를 조회하여 Node 객체로 반환한다.
+        없으면 None.
+        """
+        query: LiteralString = '\n        MATCH (n {globalId: $globalId})\n        RETURN n\n        '
+        record = tx.run(query, globalId=global_id).single()
+        if record is None:
+            return None
+        neo4j_node = record['n']
+        return Node.from_neo4j(neo4j_node)
+
+    @with_session.readonly_transaction
+    def match_nodes(self, tx: ManagedTransaction, label: str, property_filters: Optional[dict[str, Any]]=None, limit: Optional[int]=None) -> list[Node]:
+        """
+        특정 레이블과 속성 조건으로 노드 목록을 조회한다.
+        property_filters: { 'name': 'Alice', 'age': 20 }
+        limit: 결과 개수 제한
+        """
+        where_clauses: list[LiteralString] = []
+        params: dict[str, Any] = {}
+        if property_filters:
+            for idx, (k, v) in enumerate(property_filters.items()):
+                param_key: LiteralString = cast(LiteralString, f'p{idx}')
+                where_clauses.append(f'n.{escape_identifier(k)} = ${param_key}')
+                params[param_key] = v
+        where_str: LiteralString = ''
+        if where_clauses:
+            where_str = 'WHERE ' + ' AND '.join(where_clauses)
+        limit_clause: LiteralString = ''
+        if limit is not None:
+            limit_clause = cast(LiteralString, f'LIMIT {limit}')
+        query_str = f'\n        MATCH (n:{escape_identifier(label)})\n        {where_str}\n        RETURN n\n        {limit_clause}\n        '
+        result = tx.run(cast(LiteralString, query_str), **params)
+        nodes: list[Node] = []
+        for record in result:
+            neo4j_node = record['n']
+            nodes.append(Node.from_neo4j(neo4j_node))
+        return nodes
+
+    @with_session.readonly_transaction
+    def match_relationships(self, tx: ManagedTransaction, rel_type: str, property_filters: Optional[dict[str, Any]]=None, limit: Optional[int]=None) -> list[Relationship]:
+        """
+        특정 relationship 타입과 속성 조건을 만족하는 관계 목록을 조회한다.
+        """
+        where_clauses: list[LiteralString] = []
+        params: dict[str, Any] = {}
+        if property_filters:
+            for idx, (k, v) in enumerate(property_filters.items()):
+                param_key: LiteralString = cast(LiteralString, f'p{idx}')
+                where_clauses.append(f'r.{escape_identifier(k)} = ${param_key}')
+                params[param_key] = v
+        where_str: LiteralString = ''
+        if where_clauses:
+            where_str = 'WHERE ' + ' AND '.join(where_clauses)
+        limit_clause: LiteralString = ''
+        if limit is not None:
+            limit_clause = cast(LiteralString, f'LIMIT {limit}')
+        query_str: LiteralString = f'\n        MATCH ()-[r:{escape_identifier(rel_type)}]->()\n        {where_str}\n        RETURN r\n        {limit_clause}\n        '
+        result = tx.run(cast(LiteralString, query_str), **params)
+        rels: list[Relationship] = []
+        for record in result:
+            neo4j_rel = record['r']
+            rels.append(Relationship.from_neo4j(neo4j_rel))
+        return rels
+
+    @with_session.readonly_transaction
+    def find_nodes_in_relationship(self, tx: ManagedTransaction, rel_type: str, property_filters: Optional[dict[str, Any]]=None, limit: Optional[int]=None) -> list[tuple[Node, Relationship, Node]]:
+        """
+        주어진 관계 타입(rel_type)과 property_filters를 만족하는
+        (start_node, relationship, end_node) 목록을 조회한다.
+        """
+        where_clauses: list[LiteralString] = []
+        params: dict[str, Any] = {}
+        if property_filters:
+            for idx, (k, v) in enumerate(property_filters.items()):
+                param_key: LiteralString = cast(LiteralString, f'p{idx}')
+                where_clauses.append(f'r.{escape_identifier(k)} = ${param_key}')
+                params[param_key] = v
+        where_str: LiteralString = ''
+        if where_clauses:
+            where_str = 'WHERE ' + ' AND '.join(where_clauses)
+        limit_clause: LiteralString = ''
+        if limit is not None:
+            limit_clause = cast(LiteralString, f'LIMIT {limit}')
+        query_str: LiteralString = f'\n        MATCH (start)-[r:{escape_identifier(rel_type)}]->(end)\n        {where_str}\n        RETURN start, r, end\n        {limit_clause}\n        '
+        result = tx.run(query_str, **params)
+        output: list[tuple[Node, Relationship, Node]] = []
+        for record in result:
+            start_node = Node.from_neo4j(record['start'])
+            rel_obj = Relationship.from_neo4j(record['r'])
+            end_node = Node.from_neo4j(record['end'])
+            output.append((start_node, rel_obj, end_node))
+        return output
+
+    @with_session.readwrite_transaction
+    def delete_node_by_global_id(self, tx: ManagedTransaction, global_id: str) -> None:
+        """
+        global_id를 가진 노드를 (관계까지) 삭제한다.
+        """
+        query: LiteralString = '\n        MATCH (n {globalId: $gid})\n        DETACH DELETE n\n        '
+        tx.run(query, gid=global_id)
+
+    @with_session.readwrite_transaction
+    def delete_nodes_by_label(self, tx: ManagedTransaction, label: str, property_filters: Optional[dict[str, Any]]=None) -> None:
+        """
+        특정 레이블과 속성 조건을 만족하는 노드들을 일괄 삭제한다.
+        (관계까지 포함)
+        """
+        where_clauses: list[LiteralString] = []
+        params: dict[str, Any] = {}
+        if property_filters:
+            for idx, (k, v) in enumerate(property_filters.items()):
+                param_key: LiteralString = cast(LiteralString, f'pf{idx}')
+                where_clauses.append(f'n.{escape_identifier(k)} = ${param_key}')
+                params[param_key] = v
+        where_str: LiteralString = ''
+        if where_clauses:
+            where_str = 'WHERE ' + ' AND '.join(where_clauses)
+        query_str: LiteralString = f'\n        MATCH (n:{escape_identifier(label)})\n        {where_str}\n        DETACH DELETE n\n        '
+        tx.run(query_str, **params)
+
+    @with_session.readwrite_transaction
+    def delete_relationship_by_global_id(self, tx: ManagedTransaction, global_id: str) -> None:
+        """
+        globalId를 가진 관계를 찾아 삭제한다.
+        """
+        query: LiteralString = '\n        MATCH ()-[r {globalId: $gid}]-()\n        DELETE r\n        '
+        tx.run(query, gid=global_id)
+
+    @with_session.readwrite_transaction
+    def delete_relationships_by_type(self, tx: ManagedTransaction, rel_type: str, property_filters: Optional[dict[str, Any]]=None) -> None:
+        """
+        특정 관계 타입과 속성 조건을 만족하는 관계들을 일괄 삭제한다.
+        """
+        where_clauses: list[LiteralString] = []
+        params: dict[str, Any] = {}
+        if property_filters:
+            for idx, (k, v) in enumerate(property_filters.items()):
+                param_key: LiteralString = cast(LiteralString, f'pf{idx}')
+                where_clauses.append(f'r.{escape_identifier(k)} = ${param_key}')
+                params[param_key] = v
+        where_str: LiteralString = ''
+        if where_clauses:
+            where_str = 'WHERE ' + ' AND '.join(where_clauses)
+        query_str: LiteralString = f'\n        MATCH ()-[r:{escape_identifier(rel_type)}]->()\n        {where_str}\n        DELETE r\n        '
+        tx.run(query_str, **params)
+
+    @with_session.readwrite_transaction
+    def update_node_properties(self, tx: ManagedTransaction, global_id: str, new_properties: dict[str, Any]) -> None:
+        """
+        global_id 노드의 속성을 업데이트한다.
+        존재하지 않는 속성은 새로 추가, 기존에 있으면 덮어쓴다.
+        """
+        query: LiteralString = '\n        MATCH (n {globalId: $gid})\n        SET n += $props\n        '
+        tx.run(query, gid=global_id, props=new_properties)
+
+    @with_session.readwrite_transaction
+    def remove_node_property(self, tx: ManagedTransaction, global_id: str, property_key: str) -> None:
+        """
+        global_id 노드에서 특정 property 하나를 제거한다.
+        """
+        query: LiteralString = f'\n        MATCH (n {{globalId: $gid}})\n        SET n.{escape_identifier(property_key)} = null\n        '
+        tx.run(query, gid=global_id)
+
+    @with_session.readwrite_transaction
+    def add_labels_to_node(self, tx: ManagedTransaction, global_id: str, labels: list[str]) -> None:
+        """
+        global_id 노드에 새로운 레이블들을 추가한다.
+        예: SET n:LabelA:LabelB
+        """
+        if not labels:
+            return
+        label_clause: LiteralString = cast(LiteralString, 'SET n' + ''.join((f':{lbl}' for lbl in (escape_identifier(lb) for lb in labels))))
+        query: LiteralString = f'\n        MATCH (n {{globalId: $gid}})\n        {label_clause}\n        '
+        tx.run(query, gid=global_id)
+
+    @with_session.readwrite_transaction
+    def remove_labels_from_node(self, tx: ManagedTransaction, global_id: str, labels: list[str]) -> None:
+        """
+        global_id 노드에서 특정 레이블들을 제거한다.
+        예: REMOVE n:LabelA:LabelB
+        """
+        if not labels:
+            return
+        remove_clause: LiteralString = cast(LiteralString, 'REMOVE n' + ''.join((f':{lbl}' for lbl in (escape_identifier(lb) for lb in labels))))
+        query: LiteralString = f'\n        MATCH (n {{globalId: $gid}})\n        {remove_clause}\n        '
+        tx.run(query, gid=global_id)
+
+    @with_session.readwrite_transaction
+    def update_relationship_properties(self, tx: ManagedTransaction, global_id: str, new_properties: dict[str, Any]) -> None:
+        """
+        global_id 관계의 속성을 업데이트한다.
+        """
+        query: LiteralString = '\n        MATCH ()-[r {globalId: $gid}]->()\n        SET r += $props\n        '
+        tx.run(query, gid=global_id, props=new_properties)
+
+    @with_session.readwrite_transaction
+    def link_nodes(self, tx: ManagedTransaction, start_node_global_id: str, end_node_global_id: str, rel_type: str, properties: Optional[dict[str, Any]]=None) -> None:
+        """
+        start_node_global_id와 end_node_global_id를 가진 노드를
+        주어진 관계(rel_type)로 연결한다. 없으면 생성, 있으면 업데이트.
+        """
+        query: LiteralString = f'\n        MATCH (start {{globalId: $startGid}})\n        MATCH (end {{globalId: $endGid}})\n        MERGE (start)-[r:{escape_identifier(rel_type)}]->(end)\n        SET r += $props\n        '
+        tx.run(query, startGid=start_node_global_id, endGid=end_node_global_id, props=properties or {})
+
+    @with_session.readonly_transaction
+    def get_node_properties(self, tx: ManagedTransaction, global_id: str) -> Optional[dict[str, Any]]:
+        """
+        global_id 노드의 모든 속성을 Python dict 형태로 반환한다.
+        """
+        query: LiteralString = '\n        MATCH (n {globalId: $gid})\n        RETURN n\n        '
+        rec = tx.run(query, gid=global_id).single()
+        if rec is None:
+            return None
+        n = rec['n']
+        node_obj = Node.from_neo4j(n)
+        return {k: ensure_python_type(v) for k, v in node_obj.properties.items()}
+
+    @with_session.readonly_transaction
+    def get_relationship_properties(self, tx: ManagedTransaction, global_id: str) -> Optional[dict[str, Any]]:
+        """
+        global_id 관계의 모든 속성을 Python dict 형태로 반환한다.
+        """
+        query: LiteralString = '\n        MATCH ()-[r {globalId: $gid}]->()\n        RETURN r\n        '
+        rec = tx.run(query, gid=global_id).single()
+        if rec is None:
+            return None
+        r = rec['r']
+        rel_obj = Relationship.from_neo4j(r)
+        return {k: ensure_python_type(v) for k, v in rel_obj.properties.items()}
+
+    @with_session.readonly_transaction
+    def count_nodes(self, tx: ManagedTransaction, label: str) -> int:
+        """
+        특정 레이블을 가진 노드의 총 개수를 반환한다.
+        """
+        query: LiteralString = f'\n        MATCH (n:{escape_identifier(label)})\n        RETURN count(n) as cnt\n        '
+        record = tx.run(cast(LiteralString, query)).single()
+        return record['cnt'] if record else 0
+
+    @with_session.readonly_transaction
+    def count_relationships(self, tx: ManagedTransaction, rel_type: str) -> int:
+        """
+        특정 관계 타입을 가진 관계의 총 개수를 반환한다.
+        """
+        query: LiteralString = f'\n        MATCH ()-[r:{escape_identifier(rel_type)}]->()\n        RETURN count(r) as cnt\n        '
+        record = tx.run(cast(LiteralString, query)).single()
+        return record['cnt'] if record else 0
+
+    @with_async_session.readonly_transaction
+    async def afind_node_by_global_id(self, tx: AsyncManagedTransaction, global_id: str) -> Optional[Node]:
+        """
+        주어진 global_id를 가진 노드를 조회 (비동기)
+        """
+        query: LiteralString = '\n        MATCH (n {globalId: $globalId})\n        RETURN n\n        '
+        result = await tx.run(query, globalId=global_id)
+        record = await result.single()
+        if record is None:
+            return None
+        return Node.from_neo4j(record['n'])
+
+    @with_async_session.readonly_transaction
+    async def amatch_nodes(self, tx: AsyncManagedTransaction, label: str, property_filters: Optional[dict[str, Any]]=None, limit: Optional[int]=None) -> list[Node]:
+        """
+        특정 레이블과 속성 조건으로 노드 목록을 조회 (비동기)
+        """
+        where_clauses: list[LiteralString] = []
+        params: dict[LiteralString, Any] = {}
+        if property_filters:
+            for idx, (k, v) in enumerate(property_filters.items()):
+                param_key: LiteralString = cast(LiteralString, f'p{idx}')
+                where_clauses.append(f'n.{escape_identifier(k)} = ${param_key}')
+                params[param_key] = v
+        where_str: LiteralString = ''
+        if where_clauses:
+            where_str = 'WHERE ' + ' AND '.join(where_clauses)
+        limit_clause: LiteralString = ''
+        if limit is not None:
+            limit_clause = cast(LiteralString, f'LIMIT {limit}')
+        query_str: LiteralString = f'\n        MATCH (n:{escape_identifier(label)})\n        {where_str}\n        RETURN n\n        {limit_clause}\n        '
+        result = await tx.run(query_str, **params)
+        records: list[neo4j.Record] = []
+        async for rec in result:
+            records.append(rec)
+        nodes: list[Node] = []
+        for record in records:
+            neo4j_node = record['n']
+            nodes.append(Node.from_neo4j(neo4j_node))
+        return nodes
+
+    @with_async_session.readonly_transaction
+    async def amatch_relationships(self, tx: AsyncManagedTransaction, rel_type: str, property_filters: Optional[dict[str, Any]]=None, limit: Optional[int]=None) -> list[Relationship]:
+        """
+        특정 relationship 타입과 속성 조건을 만족하는 관계 목록을 조회 (비동기)
+        """
+        where_clauses: list[LiteralString] = []
+        params: dict[str, Any] = {}
+        if property_filters:
+            for idx, (k, v) in enumerate(property_filters.items()):
+                param_key: LiteralString = cast(LiteralString, f'p{idx}')
+                where_clauses.append(f'r.{escape_identifier(k)} = ${param_key}')
+                params[param_key] = v
+        where_str: LiteralString = ''
+        if where_clauses:
+            where_str = 'WHERE ' + ' AND '.join(where_clauses)
+        limit_clause: LiteralString = ''
+        if limit is not None:
+            limit_clause = cast(LiteralString, f'LIMIT {limit}')
+        query_str: LiteralString = f'\n        MATCH ()-[r:{escape_identifier(rel_type)}]->()\n        {where_str}\n        RETURN r\n        {limit_clause}\n        '
+        result = await tx.run(cast(LiteralString, query_str), **params)
+        records: list[neo4j.Record] = []
+        async for rec in result:
+            records.append(rec)
+        rels: list[Relationship] = []
+        for record in records:
+            rels.append(Relationship.from_neo4j(record['r']))
+        return rels
+
+    @with_async_session.readwrite_transaction
+    async def adelete_node_by_global_id(self, tx: AsyncManagedTransaction, global_id: str) -> None:
+        """
+        global_id를 가진 노드를 (관계까지) 삭제 (비동기)
+        """
+        query: LiteralString = '\n        MATCH (n {globalId: $gid})\n        DETACH DELETE n\n        '
+        await tx.run(query, gid=global_id)
+
+    @with_async_session.readwrite_transaction
+    async def adelete_relationship_by_global_id(self, tx: AsyncManagedTransaction, global_id: str) -> None:
+        """
+        globalId를 가진 관계를 찾아 삭제 (비동기)
+        """
+        query: LiteralString = '\n        MATCH ()-[r {globalId: $gid}]-()\n        DELETE r\n        '
+        await tx.run(query, gid=global_id)
+
+    @with_async_session.readwrite_transaction
+    async def aupdate_node_properties(self, tx: AsyncManagedTransaction, global_id: str, new_properties: dict[str, Any]) -> None:
+        """
+        global_id 노드의 속성을 업데이트한다. (비동기)
+        """
+        query: LiteralString = '\n        MATCH (n {globalId: $gid})\n        SET n += $props\n        '
+        await tx.run(query, gid=global_id, props=new_properties)
+
+    @with_async_session.readwrite_transaction
+    async def aupdate_relationship_properties(self, tx: AsyncManagedTransaction, global_id: str, new_properties: dict[str, Any]) -> None:
+        """
+        global_id 관계의 속성을 업데이트 (비동기)
+        """
+        query: LiteralString = '\n        MATCH ()-[r {globalId: $gid}]->()\n        SET r += $props\n        '
+        await tx.run(query, gid=global_id, props=new_properties)
+
+    @with_async_session.readwrite_transaction
+    async def alink_nodes(self, tx: AsyncManagedTransaction, start_node_global_id: str, end_node_global_id: str, rel_type: str, properties: Optional[dict[str, Any]]=None) -> None:
+        """
+        비동기 버전: 두 노드를 rel_type으로 연결한다. 없으면 생성, 있으면 업데이트.
+        """
+        query: LiteralString = f'\n        MATCH (start {{globalId: $startGid}})\n        MATCH (end {{globalId: $endGid}})\n        MERGE (start)-[r:{escape_identifier(rel_type)}]->(end)\n        SET r += $props\n        '
+        await tx.run(query, startGid=start_node_global_id, endGid=end_node_global_id, props=properties or {})
+
+    @with_async_session.readonly_transaction
+    async def acount_nodes(self, tx: AsyncManagedTransaction, label: str) -> int:
+        """
+        특정 레이블을 가진 노드 총 개수 (비동기)
+        """
+        query: LiteralString = f'\n        MATCH (n:{escape_identifier(label)})\n        RETURN count(n) as cnt\n        '
+        result = await tx.run(query)
+        record = await result.single()
+        if record is None:
+            return 0
+        return record['cnt']
+
+    @with_async_session.readonly_transaction
+    async def acount_relationships(self, tx: AsyncManagedTransaction, rel_type: str) -> int:
+        """
+        특정 관계 타입을 가진 관계 총 개수 (비동기)
+        """
+        query: LiteralString = f'\n        MATCH ()-[r:{escape_identifier(rel_type)}]->()\n        RETURN count(r) as cnt\n        '
+        result = await tx.run(query)
+        record = await result.single()
+        if record is None:
+            return 0
+        return record['cnt']
+
+==========
+
+### neo4j_extension\conversion.py
+from datetime import date, datetime, time, timedelta
+from typing import Dict as PyDict
+from typing import List as PyList
+from typing import LiteralString, Union
+from .abc import Neo4jType
+from .primitive import Neo4jBoolean, Neo4jByteArray, Neo4jFloat, Neo4jInteger, Neo4jList, Neo4jMap, Neo4jNull, Neo4jString
+from .spatial import Neo4jPoint
+from .temporal import Neo4jDate, Neo4jDuration, Neo4jLocalDateTime, Neo4jLocalTime, Neo4jZonedDateTime, Neo4jZonedTime
+PythonType = Union[Union[None, bool, int, float, str, date, datetime, time, timedelta, bytes], PyList['PythonType'], PyDict[str, 'PythonType']]
+
+def convert_cypher_to_neo4j(expr: str) -> Neo4jType:
+    """
+    Convert a Cypher expression to a Neo4jType object.
+    """
+    expr_strip = expr.strip().lower()
+    if expr_strip == 'null':
+        return Neo4jNull()
+    if expr_strip in ('true', 'false'):
+        return Neo4jBoolean.from_cypher(expr_strip)
+    try:
+        ival = int(expr_strip)
+        return Neo4jInteger(ival)
+    except ValueError:
+        pass
+    try:
+        return Neo4jFloat.from_cypher(expr_strip)
+    except ValueError:
+        pass
+    try:
+        return Neo4jString.from_cypher(expr)
+    except ValueError:
+        pass
+    for cls_candidate in (Neo4jDate, Neo4jLocalTime, Neo4jLocalDateTime, Neo4jZonedTime, Neo4jZonedDateTime, Neo4jDuration, Neo4jPoint, Neo4jByteArray):
+        try:
+            return cls_candidate.from_cypher(expr)
+        except ValueError:
+            pass
+        except NotImplementedError:
+            pass
+    try:
+        return Neo4jList.from_cypher(expr)
+    except ValueError:
+        pass
+    try:
+        return Neo4jMap.from_cypher(expr)
+    except ValueError:
+        pass
+    raise ValueError(f'Could not parse expression as any known Neo4j type: {expr}')
+
+def convert_neo4j_to_python(value: Neo4jType) -> PythonType:
+    """
+    Convert a Neo4jType object to a Python basic type.
+    """
+    if isinstance(value, Neo4jNull):
+        return None
+    if isinstance(value, Neo4jList):
+        return [convert_neo4j_to_python(v) for v in value.value]
+    if isinstance(value, Neo4jMap):
+        py_map = {}
+        for k, v in value.value.items():
+            py_map[k] = convert_neo4j_to_python(v)
+        return py_map
+    return value.value
+
+def convert_python_to_neo4j(value: PythonType) -> Neo4jType:
+    """
+    Convert a Python basic type to a Neo4jType object.
+    """
+    if value is None:
+        return Neo4jNull()
+    if isinstance(value, bool):
+        return Neo4jBoolean(value)
+    if isinstance(value, int):
+        return Neo4jInteger(value)
+    if isinstance(value, float):
+        return Neo4jFloat(value)
+    if isinstance(value, str):
+        return Neo4jString(value)
+    if isinstance(value, date) and (not isinstance(value, datetime)):
+        return Neo4jDate(value)
+    if isinstance(value, datetime):
+        if value.tzinfo is None:
+            return Neo4jLocalDateTime(value)
+        else:
+            return Neo4jZonedDateTime(value)
+    if isinstance(value, time) and (not isinstance(value, datetime)):
+        if value.tzinfo is None:
+            return Neo4jLocalTime(value)
+        else:
+            return Neo4jZonedTime(value)
+    if isinstance(value, timedelta):
+        return Neo4jDuration(value)
+    if isinstance(value, bytes):
+        return Neo4jByteArray(value)
+    if isinstance(value, list):
+        converted = [ensure_neo4j_type(v) for v in value]
+        return Neo4jList(converted)
+    if isinstance(value, dict):
+        conv_map = {}
+        for k, v in value.items():
+            if not isinstance(k, str):
+                raise TypeError(f'Map key must be str, got {k}')
+            conv_map[k] = ensure_neo4j_type(v)
+        return Neo4jMap(conv_map)
+    raise TypeError(f'[ensure_neo4j_type] 변환 불가한 값: {repr(value)}')
+
+def ensure_neo4j_type(value: Union[Neo4jType, PythonType]) -> Neo4jType:
+    """
+    Assert that the given value is a Neo4jType.
+
+    If the value is already a Neo4jType, it is returned as is.
+    If the value is a Python basic type, it is converted to a Neo4jType.
+    """
+    if isinstance(value, Neo4jType):
+        return value
+    return convert_python_to_neo4j(value)
+
+def ensure_python_type(value: Union[Neo4jType, PythonType]) -> PythonType:
+    """
+    Assert that the given value is a Python basic type.
+
+    If the value is a Python basic type, it is returned as is.
+    If the value is a Neo4jType, it is converted to a Python basic type.
+    """
+    if isinstance(value, Neo4jType):
+        return convert_neo4j_to_python(value)
+    return value
+
+def get_neo4j_property_type_name(val: Neo4jType) -> LiteralString:
+    """
+    Return the name of the Neo4j property type for the given value.
+    """
+    if isinstance(val, Neo4jNull):
+        return 'null'
+    if isinstance(val, Neo4jBoolean):
+        return 'boolean'
+    if isinstance(val, Neo4jInteger):
+        return 'integer'
+    if isinstance(val, Neo4jFloat):
+        return 'float'
+    if isinstance(val, Neo4jString):
+        return 'string'
+    if isinstance(val, Neo4jDate):
+        return 'date'
+    if isinstance(val, Neo4jLocalTime):
+        return 'time'
+    if isinstance(val, Neo4jLocalDateTime):
+        return 'datetime'
+    if isinstance(val, Neo4jZonedTime):
+        return 'time'
+    if isinstance(val, Neo4jZonedDateTime):
+        return 'datetime'
+    if isinstance(val, Neo4jDuration):
+        return 'duration'
+    if isinstance(val, Neo4jPoint):
+        return 'point'
+    if isinstance(val, Neo4jByteArray):
+        return 'bytearray'
+    if isinstance(val, Neo4jList):
+        return 'list'
+    return 'other'
+
+==========
+
+### neo4j_extension\graph.py
+from __future__ import annotations
+from abc import ABC, abstractmethod
+from collections import defaultdict
+from typing import Any, LiteralString, Mapping, Optional, Self, Union
+from typing import Dict as PyDict
+from typing import List as PyList
+import neo4j
+import neo4j.graph
+from .abc import Neo4jType
+from .conversion import PythonType, convert_neo4j_to_python, ensure_neo4j_type, ensure_python_type, get_neo4j_property_type_name
+from .primitive import Neo4jList
+from .typing import GraphSchema, Property, Triplet
+from .utils import escape_identifier
+
+class Entity(ABC):
+    properties: dict[str, Neo4jType]
+    globalId: Optional[str]
+
+    def __init__(self, properties: Mapping[str, Union[Neo4jType, PythonType]], globalId: Optional[str]=None) -> None:
+        self.globalId = globalId
+        self.properties = {k: ensure_neo4j_type(v) for k, v in properties.items()}
+
+    def __getitem__(self, key: str) -> PythonType:
+        return ensure_python_type(self.properties[key])
+
+    def __setitem__(self, key: str, value: Union[Neo4jType, PythonType]) -> None:
+        self.properties[key] = ensure_neo4j_type(value)
+
+    def to_python_props(self) -> dict[str, PythonType]:
+        """
+        Convert properties to Python basic types(dict).
+        """
+        result: dict[str, PythonType] = {}
+        for k, v in self.properties.items():
+            result[k] = convert_neo4j_to_python(v)
+        if self.globalId:
+            result['globalId'] = self.globalId
+        return result
+
+    def to_cypher_props(self) -> LiteralString:
+        pairs: PyList[LiteralString] = []
+        for k, v in self.properties.items():
+            if isinstance(v, Neo4jList):
+                if not v.is_storable_as_property():
+                    raise ValueError(f"Property '{k}' contains a non-storable ListValue.")
+            pairs.append(f'{escape_identifier(k)}: {v.to_cypher()}')
+        if not pairs:
+            return '{}'
+        return '{ ' + ', '.join(pairs) + ' }'
+
+    @abstractmethod
+    def to_cypher(self) -> LiteralString:
+        ...
+
+    @classmethod
+    @abstractmethod
+    def from_neo4j(cls, entity: neo4j.graph.Entity) -> Self:
+        ...
+
+    @property
+    def id(self) -> str:
+        return f'{self.globalId or self.__class__.__name__ + '_' + str(id(self))}'
+
+    def __repr__(self) -> LiteralString:
+        return self.to_cypher()
+
+    def __str__(self) -> str:
+        return f'{self.__class__.__name__}({self.to_python_props()})'
+
+class Node(Entity):
+    labels: frozenset[str]
+
+    def __init__(self, properties: Mapping[str, Union[Neo4jType, PythonType]], labels: Optional[set[str] | frozenset[str]]=None, globalId: Optional[str]=None) -> None:
+        super().__init__(properties=properties, globalId=globalId)
+        self.labels = frozenset(labels or ())
+
+    @classmethod
+    def from_neo4j(cls, entity: neo4j.graph.Node) -> Self:
+        properties: PyDict[str, Any] = entity._properties
+        globalId = properties.get('globalId')
+        if globalId:
+            globalId = str(globalId)
+        else:
+            globalId = None
+        return cls(properties=properties, labels=entity.labels, globalId=globalId)
+
+    def to_cypher(self) -> LiteralString:
+        props: LiteralString = self.to_cypher_props()
+        return f'({escape_identifier(self.id)}: {self.safe_labelstring} {props})'
+
+    @property
+    def labelstring(self) -> str:
+        labels: str = ':'.join(sorted(self.labels))
+        return labels or 'Node'
+
+    @property
+    def safe_labelstring(self) -> LiteralString:
+        labels: LiteralString = ':'.join((escape_identifier(label) for label in sorted(self.labels)))
+        return labels or 'Node'
+
+class Relationship(Entity):
+    rel_type: str
+    start_node: Node
+    end_node: Node
+
+    def __init__(self, properties: Mapping[str, Union[Neo4jType, PythonType]], rel_type: str, start_node: Node, end_node: Node, globalId: Optional[str]=None) -> None:
+        super().__init__(properties=properties, globalId=globalId)
+        self.rel_type = rel_type
+        self.start_node = start_node
+        self.end_node = end_node
+
+    @classmethod
+    def from_neo4j(cls, entity: neo4j.graph.Relationship) -> Self:
+        if entity.start_node is None or entity.end_node is None:
+            raise ValueError('Relationship must have both a start and end node.')
+        properties: PyDict[str, Any] = entity._properties
+        globalId = properties.get('globalId')
+        if globalId:
+            globalId = str(globalId)
+        else:
+            globalId = None
+        return cls(properties=properties, rel_type=entity.type, start_node=Node.from_neo4j(entity.start_node), end_node=Node.from_neo4j(entity.end_node), globalId=globalId)
+
+    def to_cypher(self) -> LiteralString:
+        start_node: LiteralString = self.start_node.to_cypher()
+        id: LiteralString = escape_identifier(self.id)
+        rel_type: LiteralString = escape_identifier(self.rel_type)
+        props_str: LiteralString = self.to_cypher_props()
+        end_node: LiteralString = self.end_node.to_cypher()
+        return f'{start_node}-[{id}: {rel_type} {props_str}]->{end_node}'
+
+class NodePath:
+    relationships: PyList[Relationship]
+    start_node: Optional[Node]
+    end_node: Optional[Node]
+
+    def __init__(self, relationships: PyList[Relationship], start_node: Optional[Node]=None, end_node: Optional[Node]=None) -> None:
+        if start_node is None and end_node is None:
+            raise ValueError('NodePath must contain at least one start or end node.')
+        self.start_node = start_node
+        self.end_node = end_node
+        if not relationships:
+            raise ValueError('NodePath must contain at least one relationship.')
+        self.relationships = relationships
+
+class Graph:
+
+    def __init__(self):
+        self.nodes: dict[str, Node] = {}
+        self.relationships: dict[str, Relationship] = {}
+
+    def add_node(self, node: Node) -> None:
+        self.nodes[node.id] = node
+
+    def add_relationship(self, relationship: Relationship) -> None:
+        self.relationships[relationship.id] = relationship
+
+    def remove_node(self, node_id: str) -> None:
+        to_remove: list[str] = []
+        for rid, rel in self.relationships.items():
+            if rel.start_node.id == node_id or rel.end_node.id == node_id:
+                to_remove.append(rid)
+        for rid in to_remove:
+            self.remove_relationship(rid)
+        self.nodes.pop(node_id, None)
+
+    def remove_relationship(self, rel_id: str) -> None:
+        self.relationships.pop(rel_id, None)
+
+    def get_graph_schema(self) -> GraphSchema:
+        """
+        현재 in-memory Graph에 존재하는 Node/Relationship 정보를 기반으로
+        간단한 스키마 정보를 구성해 GraphSchema(dict) 형태로 반환한다.
+        """
+        node_props_dict: defaultdict[str, set[tuple[str, str]]] = defaultdict(set)
+        rel_props_dict: defaultdict[str, set] = defaultdict(set)
+        relationships_list: list[Triplet] = []
+        for node in self.nodes.values():
+            labels: str = node.labelstring
+            for prop_key, neo4j_val in node.properties.items():
+                prop_type_name: str = get_neo4j_property_type_name(neo4j_val)
+                node_props_dict[labels].add((prop_key, prop_type_name))
+        for rel in self.relationships.values():
+            for prop_key, neo4j_val in rel.properties.items():
+                prop_type_name: str = get_neo4j_property_type_name(neo4j_val)
+                rel_props_dict[rel.rel_type].add((prop_key, prop_type_name))
+            relationships_list.append({'start': rel.start_node.safe_labelstring, 'type': rel.rel_type, 'end': rel.end_node.safe_labelstring})
+        node_props: dict[str, list[Property]] = {}
+        for label, propset in node_props_dict.items():
+            node_props[label] = [{'property': prop_name, 'type': prop_type} for prop_name, prop_type in sorted(propset)]
+        rel_props: dict[str, list[Property]] = {}
+        for rtype, propset in rel_props_dict.items():
+            rel_props[rtype] = [{'property': prop_name, 'type': prop_type} for prop_name, prop_type in sorted(propset)]
+        graph_schema: GraphSchema = {'node_props': node_props, 'rel_props': rel_props, 'relationships': relationships_list, 'metadata': {'constraint': [], 'index': []}}
+        return graph_schema
+
+    def get_formatted_graph_schema(self) -> str:
+        """
+        현재 그래프의 스키마 정보를 사람이 읽기 좋은 형식의 문자열로 반환한다.
+        (Neo4jConnection.format_graph_schema()와 유사 형식)
+        """
+        schema = self.get_graph_schema()
+        lines: list[str] = []
+        lines.append('### Node properties')
+        node_props = schema.get('node_props', {})
+        for label, props in node_props.items():
+            lines.append(f'- {label}')
+            for p in props:
+                lines.append(f'  * {p['property']}: {p['type']}')
+        lines.append('')
+        lines.append('### Relationship properties')
+        rel_props = schema.get('rel_props', {})
+        for rtype, rprops in rel_props.items():
+            lines.append(f'- {rtype}')
+            for rp in rprops:
+                lines.append(f'  * {rp['property']}: {rp['type']}')
+        lines.append('')
+        lines.append('### Relationships')
+        rels = schema.get('relationships', [])
+        for rel_dict in rels:
+            lines.append(f'- (:{rel_dict['start']})-[:{rel_dict['type']}]->(:{rel_dict['end']})')
+        return '\n'.join(lines)
+if __name__ == '__main__':
+    print(Node(properties={}).to_cypher())
+    graph = Graph()
+    node1 = Node({'name': 'Alice'}, {'Person'}, 'alice')
+    node2 = Node({'name': 'Bob'}, {'Person'}, 'bob')
+    rel = Relationship({'since': 1999}, 'KNOWS', node1, node2, 'alice_knows_bob')
+    graph.add_node(node1)
+    graph.add_node(node2)
+    graph.add_relationship(rel)
+    print(node1)
+    print(node2)
+    print(rel)
+    print(graph.nodes)
+    print(graph.relationships)
+    graph.remove_node('alice')
+    print(graph.nodes)
+    print(graph.relationships)
+    graph.remove_relationship('alice_knows_bob')
+    print(graph.relationships)
+
+==========
+
+### neo4j_extension\primitive.py
+from __future__ import annotations
+import base64
+import re
+from typing import Dict as PyDict
+from typing import List as PyList
+from typing import LiteralString, cast
+from .abc import Neo4jType
+from .utils import split_by_comma_top_level, tokenize_cypher_expression
+LIST_REGEX = re.compile('^\\s*\\[\\s*(.*)\\s*\\]\\s*$', re.DOTALL)
+MAP_REGEX = re.compile('^\\s*\\{\\s*(.*)\\s*\\}\\s*$', re.DOTALL)
+
+class Neo4jNull(Neo4jType[None]):
+    """
+    Neo4j 상의 null 값 표현. (v1의 NullValue에 해당)
+    """
+    value: None = None
+
+    def to_cypher(self) -> LiteralString:
+        return 'null'
+
+    @classmethod
+    def from_cypher(cls, cypher_str: str) -> Neo4jNull:
+        if cypher_str.strip().lower() == 'null':
+            return cls()
+        raise ValueError(f'Not a valid null literal: {cypher_str}')
+
+class Neo4jBoolean(Neo4jType[bool]):
+    """
+    Corresponds to Neo4j's BOOLEAN type (true / false).
+    """
+
+    def __init__(self, value: bool):
+        self.value = bool(value)
+
+    def to_cypher(self) -> LiteralString:
+        return 'true' if self.value else 'false'
+
+    @classmethod
+    def from_cypher(cls, cypher_str: str) -> Neo4jBoolean:
+        s = cypher_str.strip().lower()
+        if s == 'true':
+            return cls(True)
+        elif s == 'false':
+            return cls(False)
+        raise ValueError(f'Invalid Neo4j boolean string: {cypher_str}')
+
+class Neo4jInteger(Neo4jType[int]):
+    """
+    Corresponds to Neo4j's INTEGER type (64-bit signed).
+    """
+
+    def __init__(self, value: int):
+        if value < -2 ** 63 or value > 2 ** 63 - 1:
+            raise OverflowError('Neo4j INTEGER out of 64-bit range.')
+        self.value = value
+
+    def to_cypher(self) -> LiteralString:
+        return cast(LiteralString, str(self.value))
+
+    @classmethod
+    def from_cypher(cls, cypher_str: str) -> Neo4jInteger:
+        val = int(cypher_str.strip())
+        return cls(val)
+
+class Neo4jFloat(Neo4jType[float]):
+    """
+    Corresponds to Neo4j's FLOAT type (64-bit).
+    """
+
+    def __init__(self, value: float):
+        self.value = float(value)
+
+    def to_cypher(self) -> LiteralString:
+        return cast(LiteralString, repr(self.value))
+
+    @classmethod
+    def from_cypher(cls, cypher_str: str) -> Neo4jFloat:
+        s = cypher_str.strip().lower()
+        if s == 'nan':
+            return cls(float('nan'))
+        elif s == 'infinity':
+            return cls(float('inf'))
+        elif s == '-infinity':
+            return cls(float('-inf'))
+        val = float(s)
+        return cls(val)
+
+class Neo4jString(Neo4jType[str]):
+    """
+    Corresponds to Neo4j's STRING type.
+    """
+    STRING_REGEX = re.compile("^\\s*'((?:\\\\.|''|[^'\\\\])*)'\\s*$", re.DOTALL)
+
+    def __init__(self, value: str):
+        self.value = value
+
+    def to_cypher(self) -> LiteralString:
+        escaped = self.value
+        escaped = escaped.replace('\\', '\\\\')
+        escaped = escaped.replace("'", "''")
+        return cast(LiteralString, f"'{escaped}'")
+
+    @classmethod
+    def from_cypher(cls, cypher_str: str) -> Neo4jString:
+        match = cls.STRING_REGEX.match(cypher_str)
+        if not match:
+            raise ValueError(f'Invalid Neo4j string literal: {cypher_str}')
+        content = match.group(1)
+        content = content.replace("''", "'")
+        content = content.replace('\\n', '\n')
+        content = content.replace('\\t', '\t')
+        content = content.replace('\\r', '\r')
+        content = content.replace('\\b', '\x08')
+        content = content.replace('\\f', '\x0c')
+        content = content.replace('\\\\', '\\')
+        return cls(content)
+
+class Neo4jByteArray(Neo4jType[bytes]):
+    """
+    Neo4j에 byte array를 넘길 수 있으나, Neo4j literal은 공식 문법이 없다.
+    여기서는 'bytearray("...")' 식으로 가정하고 base64 인코딩/디코딩을 해본다.
+    """
+
+    def __init__(self, value: bytes):
+        self.value = value
+
+    def to_cypher(self) -> LiteralString:
+        encoded = base64.b64encode(self.value).decode('ascii')
+        return cast(LiteralString, f"bytearray('{encoded}')")
+
+    @classmethod
+    def from_cypher(cls, cypher_str: str) -> Neo4jByteArray:
+        s = cypher_str.strip()
+        m = re.match("^bytearray\\s*\\(\\s*'([^']*)'\\s*\\)$", s)
+        if not m:
+            raise ValueError(f'Invalid Neo4j bytearray literal: {cypher_str}')
+        b64 = m.group(1)
+        data = base64.b64decode(b64.encode('ascii'))
+        return cls(data)
+
+class Neo4jList(Neo4jType[PyList[Neo4jType]]):
+    """
+    Represents a Neo4j LIST type: [elem0, elem1, ...].
+    """
+
+    def __init__(self, value: PyList[Neo4jType]):
+        self.value = value
+
+    def to_cypher(self) -> LiteralString:
+        return '[' + ', '.join((elem.to_cypher() for elem in self.value)) + ']'
+
+    @classmethod
+    def from_cypher(cls, cypher_str: str) -> Neo4jList:
+        from .conversion import convert_cypher_to_neo4j
+        m = LIST_REGEX.match(cypher_str)
+        if not m:
+            raise ValueError(f'Invalid Neo4j list literal: {cypher_str}')
+        inner = m.group(1).strip()
+        if not inner:
+            return cls([])
+        tokens = tokenize_cypher_expression(inner)
+        elements_str_list = split_by_comma_top_level(tokens)
+        parsed_elems = [convert_cypher_to_neo4j(elem_str) for elem_str in elements_str_list]
+        return cls(parsed_elems)
+
+    def is_storable_as_property(self) -> bool:
+        """
+        Neo4j에 property로 저장 가능한 리스트인지(동질 타입 + null 없음 + 중첩 불가 등) 검사.
+        (v1의 ListValue.is_storable_as_property 참고)
+        """
+        from .conversion import get_neo4j_property_type_name
+        if not self.value:
+            return True
+        type_list = []
+        for val in self.value:
+            tname = get_neo4j_property_type_name(val)
+            if tname == 'null':
+                return False
+            if tname == 'list':
+                return False
+            type_list.append(tname)
+        first = type_list[0]
+        for other_type in type_list[1:]:
+            if other_type != first:
+                return False
+        return True
+
+class Neo4jMap(Neo4jType[PyDict[str, Neo4jType]]):
+    """
+    Represents a Neo4j MAP: { key: value, ... }.
+    """
+
+    def __init__(self, value: PyDict[str, Neo4jType]):
+        self.value = value
+
+    def to_cypher(self) -> LiteralString:
+        parts: PyList[LiteralString] = []
+        for k, v in self.value.items():
+            k_cypher = Neo4jString(k).to_cypher()
+            v_cypher = v.to_cypher()
+            parts.append(f'{k_cypher}: {v_cypher}')
+        return '{' + ', '.join(parts) + '}'
+
+    @classmethod
+    def from_cypher(cls, cypher_str: str) -> Neo4jMap:
+        from .conversion import convert_cypher_to_neo4j
+        m = MAP_REGEX.match(cypher_str)
+        if not m:
+            raise ValueError(f'Invalid Neo4j map literal: {cypher_str}')
+        inner = m.group(1).strip()
+        if not inner:
+            return cls({})
+        tokens = tokenize_cypher_expression(inner)
+        elements_str_list = split_by_comma_top_level(tokens)
+        result: PyDict[str, Neo4jType] = {}
+        for pair_str in elements_str_list:
+            pair_tokens = tokenize_cypher_expression(pair_str)
+            try:
+                colon_index = pair_tokens.index(':')
+            except ValueError:
+                raise ValueError(f'Invalid map entry (no colon): {pair_str}')
+            key_tokens = pair_tokens[:colon_index]
+            val_tokens = pair_tokens[colon_index + 1:]
+            key_str = ''.join(key_tokens).strip()
+            if re.match('^[a-zA-Z_][a-zA-Z0-9_]*$', key_str):
+                key = key_str
+            else:
+                key_val = Neo4jString.from_cypher(key_str)
+                key = key_val.value
+            val_str = ''.join(val_tokens).strip()
+            val_obj = convert_cypher_to_neo4j(val_str)
+            result[key] = val_obj
+        return cls(result)
+
+==========
+
+### neo4j_extension\spatial.py
+from __future__ import annotations
+import json
+import re
+from typing import LiteralString, Optional, cast
+from .abc import Neo4jType
+POINT_REGEX = re.compile('^\\s*point\\(\\s*(\\{.*\\})\\s*\\)\\s*$', re.IGNORECASE)
+
+class PointValue:
+    """
+    Represents a POINT value in Neo4j, with CRS, X, Y, and optionally Z coordinates.
+    """
+    __slots__ = ('crs', 'x', 'y', 'z')
+
+    def __init__(self, crs: LiteralString, x: float, y: float, z: Optional[float]=None):
+        self.crs: LiteralString = crs
+        self.x: float = x
+        self.y: float = y
+        self.z: float | None = z
+
+    def __eq__(self, other: object) -> bool:
+        if not isinstance(other, PointValue):
+            return False
+        return self.crs == other.crs and self.x == other.x and (self.y == other.y) and (self.z == other.z)
+
+    def __repr__(self) -> str:
+        return f'PointValue(crs={self.crs!r}, x={self.x}, y={self.y}, z={self.z})'
+
+class Neo4jPoint(Neo4jType[PointValue]):
+    """
+    Corresponds to Neo4j's POINT type.
+    """
+
+    def __init__(self, value: PointValue):
+        self.value = value
+
+    def to_cypher(self) -> LiteralString:
+        parts: list[LiteralString] = [cast(LiteralString, f'x: {self.value.x}'), cast(LiteralString, f'y: {self.value.y}')]
+        if self.value.z is not None:
+            parts.append(cast(LiteralString, f'z: {self.value.z}'))
+        parts.append(f"crs: '{self.value.crs}'")
+        inner = '{ ' + ', '.join(parts) + ' }'
+        return f'point({inner})'
+
+    @classmethod
+    def from_cypher(cls, cypher_str: str) -> Neo4jPoint:
+        m = POINT_REGEX.match(cypher_str)
+        if not m:
+            raise ValueError(f'Invalid Neo4j point literal: {cypher_str}')
+        map_str = m.group(1).strip()
+        tmp = re.sub("'", '"', map_str)
+        tmp = re.sub('(\\w+)\\s*:', '"\\1":', tmp)
+        try:
+            data = json.loads(tmp)
+        except json.JSONDecodeError as e:
+            raise ValueError(f'Invalid point map: {map_str}') from e
+        if 'x' not in data or 'y' not in data:
+            raise ValueError(f'Invalid point map, must contain x,y keys: {cypher_str}')
+        crs = data.get('crs', 'cartesian')
+        x = float(data['x'])
+        y = float(data['y'])
+        z = data['z'] if 'z' in data else None
+        if z is not None:
+            z = float(z)
+        return cls(PointValue(crs=crs, x=x, y=y, z=z))
+
+==========
+
+### neo4j_extension\temporal.py
+from __future__ import annotations
+import re
+from datetime import date, datetime, time, timedelta
+from typing import LiteralString, Optional, cast
+from .abc import Neo4jType
+DATE_REGEX = re.compile('^\\s*date\\(\\s*([\'"])([0-9+\\-]{1,}-[0-9]{1,2}-[0-9]{1,2})\\1\\s*\\)\\s*$', re.IGNORECASE)
+
+class Neo4jDate(Neo4jType[date]):
+    """
+    Corresponds to Neo4j's DATE type: ISO-8601 date (YYYY-MM-DD).
+    """
+
+    def __init__(self, value: date):
+        self.value = value
+
+    def to_cypher(self) -> LiteralString:
+        return cast(LiteralString, f"date('{self.value.isoformat()}')")
+
+    @classmethod
+    def from_cypher(cls, cypher_str: str) -> Neo4jDate:
+        m = DATE_REGEX.match(cypher_str)
+        if not m:
+            raise ValueError(f'Invalid Neo4j date literal: {cypher_str}')
+        iso_str = m.group(2)
+        try:
+            d = date.fromisoformat(iso_str)
+        except ValueError as e:
+            raise ValueError(f'Invalid date format: {iso_str}') from e
+        return cls(d)
+TIME_REGEX = re.compile('^\\s*time\\(\\s*([\'"])([0-9:\\.]+)\\1\\s*\\)\\s*$', re.IGNORECASE)
+
+class Neo4jLocalTime(Neo4jType[time]):
+    """
+    Corresponds to Neo4j's LOCAL TIME type (no timezone).
+    """
+
+    def __init__(self, value: time):
+        self.value = value
+
+    def to_cypher(self) -> LiteralString:
+        return cast(LiteralString, f"time('{self.value.isoformat()}')")
+
+    @classmethod
+    def from_cypher(cls, cypher_str: str) -> Neo4jLocalTime:
+        m = TIME_REGEX.match(cypher_str)
+        if not m:
+            raise ValueError(f'Invalid Neo4j local time literal: {cypher_str}')
+        iso_str = m.group(2)
+        try:
+            t = time.fromisoformat(iso_str)
+        except ValueError as e:
+            raise ValueError(f'Invalid local time format: {iso_str}') from e
+        if t.tzinfo is not None:
+            raise ValueError('Expected local time (no tzinfo).')
+        return cls(t)
+LOCAL_DATETIME_REGEX = re.compile('^\\s*datetime\\(\\s*([\'"])([0-9+\\-T:\\.]+)\\1\\s*\\)\\s*$', re.IGNORECASE)
+
+class Neo4jLocalDateTime(Neo4jType[datetime]):
+    """
+    Corresponds to Neo4j's LOCAL DATETIME type (no timezone).
+    """
+
+    def __init__(self, value: datetime):
+        if value.tzinfo is not None:
+            raise ValueError('LocalDateTime should not have tzinfo.')
+        self.value = value
+
+    def to_cypher(self) -> LiteralString:
+        return cast(LiteralString, f"datetime('{self.value.isoformat()}')")
+
+    @classmethod
+    def from_cypher(cls, cypher_str: str) -> Neo4jLocalDateTime:
+        m = LOCAL_DATETIME_REGEX.match(cypher_str)
+        if not m:
+            raise ValueError(f'Invalid local datetime literal: {cypher_str}')
+        iso_str = m.group(2)
+        try:
+            dt = datetime.fromisoformat(iso_str)
+        except ValueError as e:
+            raise ValueError(f'Invalid local datetime format: {iso_str}') from e
+        if dt.tzinfo is not None:
+            raise ValueError('Expected local datetime (no tz).')
+        return cls(dt)
+ZONED_TIME_REGEX = re.compile('^\\s*time\\(\\s*([\'"])([0-9:\\.\\+\\-]+)\\1\\s*\\)\\s*$', re.IGNORECASE)
+
+class Neo4jZonedTime(Neo4jType[time]):
+    """
+    Corresponds to Neo4j's ZONED TIME type (time with timezone offset).
+    """
+
+    def __init__(self, value: time):
+        if value.tzinfo is None:
+            raise ValueError('ZonedTime requires a tzinfo (offset).')
+        self.value = value
+
+    def to_cypher(self) -> LiteralString:
+        return cast(LiteralString, f"time('{self.value.isoformat()}')")
+
+    @classmethod
+    def from_cypher(cls, cypher_str: str) -> Neo4jZonedTime:
+        m = ZONED_TIME_REGEX.match(cypher_str)
+        if not m:
+            raise ValueError(f'Invalid Neo4j zoned time literal: {cypher_str}')
+        iso_str = m.group(2)
+        try:
+            t = time.fromisoformat(iso_str)
+        except ValueError as e:
+            raise ValueError(f'Invalid zoned time format: {iso_str}') from e
+        if t.tzinfo is None:
+            raise ValueError('Zoned time string must have offset.')
+        return cls(t)
+ZONED_DATETIME_REGEX = re.compile('^\\s*datetime\\(\\s*([\'"])([0-9+\\-T:\\.]+(?:Z|[+\\-][0-9:]+))\\1\\s*\\)\\s*$', re.IGNORECASE)
+
+class Neo4jZonedDateTime(Neo4jType[datetime]):
+    """
+    Corresponds to Neo4j's ZONED DATETIME type (datetime with timezone offset).
+    """
+
+    def __init__(self, value: datetime):
+        if value.tzinfo is None:
+            raise ValueError('ZonedDateTime requires a tzinfo.')
+        self.value = value
+
+    def to_cypher(self) -> LiteralString:
+        return cast(LiteralString, f"datetime('{self.value.isoformat()}')")
+
+    @classmethod
+    def from_cypher(cls, cypher_str: str) -> Neo4jZonedDateTime:
+        m = ZONED_DATETIME_REGEX.match(cypher_str)
+        if not m:
+            raise ValueError(f'Invalid Neo4j zoned datetime literal: {cypher_str}')
+        iso_str = m.group(2)
+        try:
+            dt = datetime.fromisoformat(iso_str)
+        except ValueError as e:
+            raise ValueError(f'Invalid zoned datetime format: {iso_str}') from e
+        if dt.tzinfo is None:
+            raise ValueError('Zoned datetime must have offset.')
+        return cls(dt)
+DURATION_REGEX = re.compile('^\\s*duration\\(\\s*([\'"])(P.*)\\1\\s*\\)\\s*$', re.IGNORECASE)
+DURATION_ISO_REGEX = re.compile('\n    ^\n    P\n    (?:(?P<years>   [+-]?\\d+(?:\\.\\d+)? )Y)?\n    (?:(?P<months>  [+-]?\\d+(?:\\.\\d+)? )M)?\n    (?:(?P<days>    [+-]?\\d+(?:\\.\\d+)? )D)?\n    (?:T\n        (?:(?P<hours>   [+-]?\\d+(?:\\.\\d+)? )H)?\n        (?:(?P<minutes> [+-]?\\d+(?:\\.\\d+)? )M)?\n        (?:(?P<seconds> [+-]?\\d+(?:\\.\\d+)? )S)?\n    )?\n    $\n    ', re.IGNORECASE | re.VERBOSE)
+
+class Neo4jDuration(Neo4jType[timedelta]):
+    """
+    Corresponds to Neo4j's DURATION type.
+    """
+
+    def __init__(self, value: timedelta):
+        self.value = value
+
+    def to_cypher(self) -> LiteralString:
+        total_seconds = int(self.value.total_seconds())
+        micros = self.value.microseconds
+        sign = -1 if total_seconds < 0 else 1
+        total_seconds = abs(total_seconds)
+        days = total_seconds // 86400
+        remain = total_seconds % 86400
+        hours = remain // 3600
+        remain %= 3600
+        minutes = remain // 60
+        seconds = remain % 60
+        frac: str = ''
+        if micros > 0:
+            frac_val = micros / 1000000
+            frac = f'{frac_val}'.lstrip('0')
+        base: str = f'P{days}DT{hours}H{minutes}M{seconds}{frac}S'
+        return cast(LiteralString, f"duration('{('-' if sign < 0 else '')}{base}')")
+
+    @classmethod
+    def from_cypher(cls, cypher_str: str) -> Neo4jDuration:
+        s = cypher_str.strip()
+        pattern = "^duration\\(\\s*'(?P<sign>[+-])?P(?:(?P<years>\\d+(?:\\.\\d+)?)Y)?(?:(?P<months>\\d+(?:\\.\\d+)?)M)?(?:(?P<weeks>\\d+(?:\\.\\d+)?)W)?(?:(?P<days>\\d+(?:\\.\\d+)?)D)?(?:T(?:(?P<hours>\\d+(?:\\.\\d+)?)H)?(?:(?P<minutes>\\d+(?:\\.\\d+)?)M)?(?:(?P<seconds>\\d+(?:\\.\\d+)?)S)?)?'\\s*\\)$"
+        m = re.match(pattern, s)
+        if not m:
+            raise ValueError(f'[DurationValue] duration(...), Not a literal: {cypher_str}')
+
+        def to_f(raw: Optional[str]) -> float:
+            return float(raw) if raw else 0.0
+        sign_str = m.group('sign')
+        sign = -1 if sign_str == '-' else 1
+        years = to_f(m.group('years'))
+        months = to_f(m.group('months'))
+        weeks = to_f(m.group('weeks'))
+        days_ = to_f(m.group('days'))
+        hours = to_f(m.group('hours'))
+        minutes = to_f(m.group('minutes'))
+        seconds = to_f(m.group('seconds'))
+        total_days = years * 360 + months * 30 + weeks * 7 + days_
+        total_seconds = total_days * 86400 + hours * 3600 + minutes * 60 + seconds
+        total_seconds *= sign
+        td = timedelta(seconds=total_seconds)
+        return cls(td)
+
+==========
+
+### neo4j_extension\typing.py
+from typing import Any, TypedDict
+
+class Property(TypedDict):
+    property: str
+    type: str
+
+class Triplet(TypedDict):
+    start: str
+    type: str
+    end: str
+
+class StructuredSchemaMetadata(TypedDict):
+    constraint: list[dict[str, Any]]
+    index: list[dict[str, Any]]
+
+class GraphSchema(TypedDict):
+    node_props: dict[str, list[Property]]
+    rel_props: dict[str, list[Property]]
+    relationships: list[Triplet]
+    metadata: StructuredSchemaMetadata
+
+==========
+
+### neo4j_extension\utils.py
+import unicodedata
+from typing import List as PyList
+from typing import LiteralString, cast
+DELIMITERS = {'[', ']', '(', ')', '{', '}', ',', ':', "'", '"'}
+
+def escape_identifier(key: str) -> LiteralString:
+    """
+    Escape a property key for use in a Cypher query.
+    If the key is a valid identifier, it is returned as is.
+    Otherwise, it is escaped with backticks.
+    """
+    if all((unicodedata.category(char).startswith(('L', 'N')) or char == '_' for char in key)):
+        return cast(LiteralString, key)
+    escaped = key.replace('`', '``')
+    return cast(LiteralString, f'`{escaped}`')
+
+def get_safe_query(query: LiteralString, **labels: str) -> LiteralString:
+    """
+    Return a Cypher query with the given labels as parameters.
+
+    The query should contain placeholders for the labels in the format
+    `{label_name}`. The labels will be escaped and inserted into the query.
+
+    Example:
+    ```python
+    query = "MATCH (n:{label}) RETURN n"
+    labels = {"label": "Person"}
+    print(_get_type_query(query, **labels))
+    ```
+
+    Args:
+        query: The Cypher query with placeholders for labels.
+        **labels: The labels to insert into the query.
+
+    Returns:
+        The Cypher query with the labels inserted.
+    """
+    s = query.format(**{key: escape_identifier(value) for key, value in labels.items()})
+    return cast(LiteralString, s)
+
+def tokenize_cypher_expression(expr: str) -> PyList[str]:
+    """
+    Simple Cypher expression tokenizer.
+    """
+    tokens: PyList[str] = []
+    i = 0
+    length = len(expr)
+    while i < length:
+        c = expr[i]
+        if c.isspace():
+            i += 1
+            continue
+        if c in ('(', ')', '[', ']', '{', '}', ',', ':'):
+            tokens.append(c)
+            i += 1
+            continue
+        if c in ("'", '"'):
+            quote_char = c
+            start_index = i
+            i += 1
+            escaped = False
+            while i < length:
+                if escaped:
+                    escaped = False
+                    i += 1
+                elif i < length and expr[i] == '\\':
+                    escaped = True
+                    i += 1
+                elif i < length and expr[i] == quote_char:
+                    i += 1
+                    break
+                else:
+                    i += 1
+            str_token = expr[start_index:i]
+            tokens.append(str_token)
+            continue
+        start_index = i
+        while i < length:
+            if expr[i].isspace() or expr[i] in DELIMITERS:
+                break
+            i += 1
+        sub = expr[start_index:i]
+        tokens.append(sub)
+    return tokens
+
+def split_by_comma_top_level(tokens: PyList[str]) -> PyList[str]:
+    """
+    Split tokens by ',' at the top level.
+    """
+    result: PyList[str] = []
+    current_tokens: PyList[str] = []
+    stack: PyList[str] = []
+    level = 0
+    matching = {'(': ')', '[': ']', '{': '}'}
+    for t in tokens:
+        if t in ('(', '[', '{'):
+            stack.append(t)
+            level += 1
+            current_tokens.append(t)
+        elif t in (')', ']', '}'):
+            if not stack:
+                raise ValueError(f'Unmatched closing bracket: {t}')
+            top = stack.pop()
+            level -= 1
+            if matching[top] != t:
+                raise ValueError(f'Mismatched bracket: {t}')
+            current_tokens.append(t)
+        elif t == ',' and level == 0:
+            result.append(''.join(current_tokens).strip())
+            current_tokens = []
+        else:
+            current_tokens.append(t)
+    if stack:
+        raise ValueError(f'Unclosed bracket(s) in expression: {stack}')
+    if current_tokens:
+        result.append(''.join(current_tokens).strip())
+    return result
+
+==========
+
+### neo4j_extension\__init__.py
+from .abc import Neo4jType
+from .connection import Neo4jConnection, with_async_session, with_session
+from .conversion import PythonType, convert_cypher_to_neo4j, convert_neo4j_to_python, convert_python_to_neo4j, ensure_neo4j_type, ensure_python_type, get_neo4j_property_type_name
+from .graph import Entity, Graph, Node, Relationship
+from .primitive import Neo4jBoolean, Neo4jByteArray, Neo4jFloat, Neo4jInteger, Neo4jList, Neo4jMap, Neo4jNull, Neo4jString
+from .spatial import Neo4jPoint, PointValue
+from .temporal import Neo4jDate, Neo4jDuration, Neo4jLocalDateTime, Neo4jLocalTime, Neo4jZonedDateTime, Neo4jZonedTime
+from .typing import GraphSchema, Property, Triplet, StructuredSchemaMetadata
+from .utils import escape_identifier, get_safe_query, split_by_comma_top_level, tokenize_cypher_expression
+__all__ = ['GraphSchema', 'Neo4jBoolean', 'Neo4jByteArray', 'Neo4jFloat', 'Neo4jInteger', 'Neo4jList', 'Neo4jMap', 'Neo4jNull', 'Neo4jString', 'Neo4jPoint', 'PointValue', 'Neo4jDate', 'Neo4jDuration', 'Neo4jType', 'Neo4jLocalDateTime', 'Neo4jLocalTime', 'Neo4jZonedDateTime', 'Neo4jZonedTime', 'Entity', 'Graph', 'Node', 'Relationship', 'PythonType', 'convert_neo4j_to_python', 'ensure_neo4j_type', 'get_neo4j_property_type_name', 'convert_cypher_to_neo4j', 'convert_python_to_neo4j', 'Neo4jConnection', 'with_session', 'with_async_session', 'escape_identifier', 'get_safe_query', 'split_by_comma_top_level', 'tokenize_cypher_expression', 'ensure_python_type', 'Property', 'Triplet', 'StructuredSchemaMetadata', 'GraphSchema']
+
+==========
+
