@@ -188,34 +188,48 @@ class Relationship(Entity):
         return f"{start_node}-[{id}: {rel_type} {props_str}]->{end_node}"
 
 
-class NodePath:
-    relationships: PyList[Relationship]
-    start_node: Optional[Node]
-    end_node: Optional[Node]
-
+class Graph:
     def __init__(
         self,
-        relationships: PyList[Relationship],
-        start_node: Optional[Node] = None,
-        end_node: Optional[Node] = None,
+        nodes: Optional[dict[str, Node]] = None,
+        relationships: Optional[dict[str, Relationship]] = None,
     ) -> None:
-        if start_node is None and end_node is None:
-            raise ValueError(
-                "NodePath must contain at least one start or end node."
-            )
-        self.start_node = start_node
-        self.end_node = end_node
-        if not relationships:
-            raise ValueError(
-                "NodePath must contain at least one relationship."
-            )
-        self.relationships = relationships
+        self.nodes: dict[str, Node] = nodes or {}
+        self.relationships: dict[str, Relationship] = relationships or {}
 
+    def __repr__(self) -> str:
+        if self.nodes:
+            n = (
+                "\n"
+                + ",\n".join(
+                    "        " + repr(n) for n in self.nodes.values()
+                )
+                + "\n    "
+            )
+        else:
+            n = ""
 
-class Graph:
-    def __init__(self):
-        self.nodes: dict[str, Node] = {}
-        self.relationships: dict[str, Relationship] = {}
+        if self.relationships:
+            r = (
+                "\n"
+                + ",\n".join(
+                    "        " + repr(r) for r in self.relationships.values()
+                )
+                + "\n    "
+            )
+        else:
+            r = ""
+
+        return f"{self.__class__.__name__}(\n    nodes=[{n}],\n    relationships=[{r}],\n)"
+
+    @classmethod
+    def from_neo4j(cls, graph: neo4j.graph.Graph) -> Graph:
+        result = cls()
+        for entity in graph.nodes:
+            result.add_node(Node.from_neo4j(entity))
+        for entity in graph.relationships:
+            result.add_relationship(Relationship.from_neo4j(entity))
+        return result
 
     def add_node(self, node: Node) -> None:
         self.nodes[node.id] = node

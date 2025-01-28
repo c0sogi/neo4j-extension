@@ -591,6 +591,52 @@ class Neo4jConnection:
         return result["r"] if result else {}
 
     @with_session.readwrite_transaction
+    def get_all_nodes(self, tx: ManagedTransaction) -> list[Node]:
+        """Get all nodes in the database"""
+        result = tx.run("MATCH (n) RETURN n")
+        return [Node.from_neo4j(record["n"]) for record in result]
+
+    @with_async_session.readwrite_transaction
+    async def aget_all_nodes(
+        self, tx: AsyncManagedTransaction
+    ) -> list[Node]:
+        """Get all nodes in the database (async)"""
+        result = await tx.run("MATCH (n) RETURN n")
+        return [Node.from_neo4j(record["n"]) async for record in result]
+
+    @with_session.readwrite_transaction
+    def get_all_relationships(
+        self, tx: ManagedTransaction
+    ) -> list[Relationship]:
+        """Get all relationships in the database"""
+        result = tx.run("MATCH ()-[r]->() RETURN r")
+        return [Relationship.from_neo4j(record["r"]) for record in result]
+
+    @with_async_session.readwrite_transaction
+    async def aget_all_relationships(
+        self, tx: AsyncManagedTransaction
+    ) -> list[Relationship]:
+        """Get all relationships in the database (async)"""
+        result = await tx.run("MATCH ()-[r]->() RETURN r")
+        return [
+            Relationship.from_neo4j(record["r"]) async for record in result
+        ]
+
+    @with_session.readwrite_transaction
+    def get_all_graph(self, tx: ManagedTransaction) -> Graph:
+        """Get all nodes and relationships in the database"""
+
+        result = tx.run("MATCH (n)-[r]->(m) RETURN n, r, m")
+        return Graph.from_neo4j(result.graph())
+
+    @with_async_session.readwrite_transaction
+    async def aget_all_graph(self, tx: AsyncManagedTransaction) -> Graph:
+        """Get all nodes and relationships in the database (async)"""
+
+        result = await tx.run("MATCH (n)-[r]->(m) RETURN n, r, m")
+        return Graph.from_neo4j((await result.graph()))
+
+    @with_session.readwrite_transaction
     def clear_all(self, tx: ManagedTransaction) -> None:
         """Clear all data in the database"""
         tx.run("MATCH (n) DETACH DELETE n")
