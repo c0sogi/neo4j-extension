@@ -1,10 +1,11 @@
-[tool.setuptools]
-py-modules = ["neo4j_extension"]
-
 [project]
 name = "neo4j-extension"
-version = "0.1.2"
+version = "0.1.4"
 description = "Define types for Neo4j"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = ["neo4j>=5.27.0", "neo4j-rust-ext>=5.27.0.0"]
+
+
+[tool.setuptools]
+packages = ["neo4j_extension"]

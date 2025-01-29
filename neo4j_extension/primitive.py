@@ -211,6 +211,26 @@ class Neo4jList(Neo4jType[PyList[Neo4jType]]):
     """
 
     def __init__(self, value: PyList[Neo4jType]):
+        """
+        Auto-cast high-level types to lower-level types in the list. (e.g., Boolean->Integer->Float)
+
+        - If there is at least one Float, all Boolean/Integer are converted to Float.
+        - If there is no Float but Boolean/Integer, Boolean is converted to Integer.
+        - Otherwise, keep as is if other types are mixed.
+        """
+        has_float: bool = any(isinstance(x, Neo4jFloat) for x in value)
+        if has_float:
+            self.value = [Neo4jFloat(_cast_to_float(x)) for x in value]
+            return
+
+        has_bool: bool = any(isinstance(x, Neo4jBoolean) for x in value)
+        has_int: bool = any(isinstance(x, Neo4jInteger) for x in value)
+        if (has_bool or has_int) and all(
+            isinstance(x, (Neo4jBoolean, Neo4jInteger)) for x in value
+        ):
+            self.value = [Neo4jInteger(_cast_to_int(x)) for x in value]
+            return
+
         self.value = value
 
     def to_cypher(self) -> LiteralString:
@@ -262,6 +282,24 @@ class Neo4jList(Neo4jType[PyList[Neo4jType]]):
             if other_type != first:
                 return False
         return True
+
+
+def _cast_to_float(val: Neo4jType) -> float:
+    if isinstance(val, Neo4jFloat):
+        return val.value
+    elif isinstance(val, Neo4jInteger):
+        return float(val.value)
+    elif isinstance(val, Neo4jBoolean):
+        return 1.0 if val.value else 0.0
+    raise TypeError(f"Cannot cast {type(val).__name__} to float")
+
+
+def _cast_to_int(val: Neo4jType) -> int:
+    if isinstance(val, Neo4jInteger):
+        return val.value
+    elif isinstance(val, Neo4jBoolean):
+        return 1 if val.value else 0
+    raise TypeError(f"Cannot cast {type(val).__name__} to int")
 
 
 ###############################################################################
