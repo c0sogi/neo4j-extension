@@ -14,6 +14,15 @@ from .conversion import (
     get_neo4j_property_type_name,
 )
 from .graph import Entity, Graph, Node, Relationship
+from .model import (
+    EntityModel,
+    GraphModel,
+    NodeModel,
+    OrphanConnectionProposal,
+    OrphanNodesFoundException,
+    PropertyModel,
+    RelationshipModel,
+)
 from .primitive import (
     Neo4jBoolean,
     Neo4jByteArray,
@@ -36,8 +45,8 @@ from .temporal import (
 from .typing import (
     GraphSchema,
     Property,
-    Triplet,
     StructuredSchemaMetadata,
+    Triplet,
 )
 from .utils import (
     escape_identifier,
@@ -87,4 +96,11 @@ __all__ = [
     "Triplet",
     "StructuredSchemaMetadata",
     "GraphSchema",
+    "PropertyModel",
+    "NodeModel",
+    "RelationshipModel",
+    "EntityModel",
+    "GraphModel",
+    "OrphanConnectionProposal",
+    "OrphanNodesFoundException",
 ]

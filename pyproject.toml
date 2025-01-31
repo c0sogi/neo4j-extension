@@ -1,10 +1,10 @@
 [project]
 name = "neo4j-extension"
-version = "0.1.4"
+version = "0.1.5"
 description = "Define types for Neo4j"
 readme = "README.md"
 requires-python = ">=3.12"
-dependencies = ["neo4j>=5.27.0", "neo4j-rust-ext>=5.27.0.0"]
+dependencies = ["neo4j>=5.27.0", "neo4j-rust-ext>=5.27.0.0", "pydantic>=2.10.6"]
 
 
 [tool.setuptools]
