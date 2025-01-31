@@ -1,8 +1,0 @@
-README.md
-pyproject.toml
-neo4j_extension/neo4j_extension.egg-info/PKG-INFO
-neo4j_extension/neo4j_extension.egg-info/SOURCES.txt
-neo4j_extension/neo4j_extension.egg-info/dependency_links.txt
-neo4j_extension/neo4j_extension.egg-info/requires.txt
-neo4j_extension/neo4j_extension.egg-info/top_level.txt
-test/test_neo4j.py

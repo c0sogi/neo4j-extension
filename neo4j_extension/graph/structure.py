@@ -120,13 +120,7 @@ class Node(Entity):
         )
 
     def __str__(self) -> str:
-        pyprops = self.to_python_props()
-        globalId = str(pyprops.pop("globalId", ""))
-        if globalId:
-            return f"{self.__class__.__name__}<{self.labelstring}, {globalId=}>{pyprops}"
-        else:
-            id = self.id
-            return f"{self.__class__.__name__}<{self.labelstring}, {id=}>{pyprops}"
+        return f"({self.labelstring}){self.to_python_props()}"
 
     def to_cypher(self) -> LiteralString:
         props: LiteralString = self.to_cypher_props()
@@ -164,13 +158,7 @@ class Relationship(Entity):
         self.end_node = end_node
 
     def __str__(self) -> str:
-        pyprops = self.to_python_props()
-        globalId = str(pyprops.pop("globalId", ""))
-        if globalId:
-            return f"{self.__class__.__name__}<({self.start_node.labelstring})-[{self.rel_type}]->({self.end_node.labelstring}), {globalId=}>{pyprops}"
-        else:
-            id = self.id
-            return f"{self.__class__.__name__}<({self.start_node.labelstring})-[{self.rel_type}]->({self.end_node.labelstring}), {id=}>{pyprops}"
+        return f"[{self.start_node.id} {self.rel_type} {self.end_node.id}]{self.to_python_props()}"
 
     @classmethod
     def from_neo4j(  # pyright: ignore[reportIncompatibleMethodOverride]
@@ -217,10 +205,8 @@ class Graph:
         if self.nodes:
             n = (
                 "\n"
-                + ",\n".join(
-                    "        " + str(n) for n in self.nodes.values()
-                )
-                + "\n    "
+                + "\n".join("- " + str(n) for n in self.nodes.values())
+                + "\n"
             )
         else:
             n = ""
@@ -228,15 +214,15 @@ class Graph:
         if self.relationships:
             r = (
                 "\n"
-                + ",\n".join(
-                    "        " + str(r) for r in self.relationships.values()
+                + "\n".join(
+                    "- " + str(r) for r in self.relationships.values()
                 )
-                + "\n    "
+                + "\n"
             )
         else:
             r = ""
 
-        return f"{self.__class__.__name__}(\n    nodes=[{n}],\n    relationships=[{r}],\n)"
+        return f"### Nodes {n}\n### Relationships{r}"
 
     @classmethod
     def from_neo4j(cls, graph: neo4j.graph.Graph) -> Graph:
