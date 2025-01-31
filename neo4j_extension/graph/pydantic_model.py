@@ -26,8 +26,8 @@ class PropertyModel(BaseModel):
     Represents a single key-value property for a node or relationship.
     """
 
-    key: str
-    value: PropertyType
+    k: str
+    v: PropertyType
 
 
 class EntityModel(BaseModel, ABC):
@@ -47,13 +47,13 @@ class EntityModel(BaseModel, ABC):
     @property
     def python_props(self) -> dict[str, PythonType]:
         return {
-            prop.key: ensure_python_type(cast(PythonType, prop.value))
+            prop.k: ensure_python_type(cast(PythonType, prop.v))
             for prop in self.properties
         }
 
     @property
     def json_props(self) -> dict[str, PropertyType]:
-        return {prop.key: prop.value for prop in self.properties}
+        return {prop.k: prop.v for prop in self.properties}
 
     @classmethod
     def merge_properties(cls: Type[E], entities: Sequence[E]) -> E:
@@ -72,18 +72,16 @@ class EntityModel(BaseModel, ABC):
         for p in properties:
             # Example: unify string properties by lowercasing
             normalized_value: PropertyType = (
-                p.value.strip().lower()
-                if isinstance(p.value, str)
-                else p.value
+                p.v.strip().lower() if isinstance(p.v, str) else p.v
             )
-            if p.key in normalized_props:
-                existing_val: PropertyType = normalized_props[p.key]
+            if p.k in normalized_props:
+                existing_val: PropertyType = normalized_props[p.k]
                 if not isinstance(existing_val, list):
                     existing_val = [existing_val]
                 existing_val.append(normalized_value)
-                normalized_props[p.key] = existing_val
+                normalized_props[p.k] = existing_val
             else:
-                normalized_props[p.key] = normalized_value
+                normalized_props[p.k] = normalized_value
 
         # If there's only a single value in the list, flatten it
         for k, v in normalized_props.items():
@@ -92,10 +90,7 @@ class EntityModel(BaseModel, ABC):
 
         entity.properties.clear()
         entity.properties.extend(
-            [
-                PropertyModel(key=k, value=v)
-                for k, v in normalized_props.items()
-            ]
+            [PropertyModel(k=k, v=v) for k, v in normalized_props.items()]
         )
 
         if isinstance(entity, NodeModel):
@@ -174,7 +169,7 @@ class NodeModel(EntityModel):
                 )
 
         merged_props_list = [
-            PropertyModel(key=key, value=value)
+            PropertyModel(k=key, v=value)
             for key, value in merged_props.items()
         ]
         return NodeModel(
@@ -277,8 +272,8 @@ class RelationshipModel(EntityModel):
     def to_neo4j(
         self, node_map: dict[str, Node], prefix: str
     ) -> Relationship:
-        start_neo4j_node = node_map[f"#{self.startNode.uniqueId}"]
-        end_neo4j_node = node_map[f"#{self.endNode.uniqueId}"]
+        start_neo4j_node = node_map[f"{prefix}#{self.startNode.uniqueId}"]
+        end_neo4j_node = node_map[f"{prefix}#{self.endNode.uniqueId}"]
         return Relationship(
             properties=self.python_props,
             rel_type=self.type,

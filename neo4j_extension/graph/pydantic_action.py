@@ -105,9 +105,9 @@ class AddPropertyAction(BaseModel):
                 )
                 return False
             # Check if property already exists
-            if any(p.key == self.property.key for p in target.properties):
+            if any(p.k == self.property.k for p in target.properties):
                 print(
-                    f"WARNING: property {self.property.key} already exists. Skip."
+                    f"WARNING: property {self.property.k} already exists. Skip."
                 )
                 return False
             target.properties.append(self.property)
@@ -127,9 +127,9 @@ class AddPropertyAction(BaseModel):
                     f"WARNING: AddPropertyAction: relationship #{eid} not found. Skip."
                 )
                 return False
-            if any(p.key == self.property.key for p in target.properties):
+            if any(p.k == self.property.k for p in target.properties):
                 print(
-                    f"WARNING: property {self.property.key} already exists. Skip."
+                    f"WARNING: property {self.property.k} already exists. Skip."
                 )
                 return False
             target.properties.append(self.property)
@@ -180,8 +180,8 @@ class UpdatePropertyAction(BaseModel):
                 print(f"WARNING: node #{eid} not found for update. Skip.")
                 return False
             for prop in target.properties:
-                if prop.key == self.propertyKey:
-                    prop.value = self.newValue
+                if prop.k == self.propertyKey:
+                    prop.v = self.newValue
                     return True
             print(
                 f"WARNING: node #{eid} has no property {self.propertyKey}. Skip."
@@ -203,8 +203,8 @@ class UpdatePropertyAction(BaseModel):
                 )
                 return False
             for prop in target.properties:
-                if prop.key == self.propertyKey:
-                    prop.value = self.newValue
+                if prop.k == self.propertyKey:
+                    prop.v = self.newValue
                     return True
             print(
                 f"WARNING: relationship #{eid} has no property {self.propertyKey}. Skip."
@@ -256,7 +256,7 @@ class RemovePropertyAction(BaseModel):
                 return False
             before_len = len(target.properties)
             target.properties = [
-                p for p in target.properties if p.key != self.propertyKey
+                p for p in target.properties if p.k != self.propertyKey
             ]
             after_len = len(target.properties)
             if before_len == after_len:
@@ -280,7 +280,7 @@ class RemovePropertyAction(BaseModel):
                 return False
             before_len = len(target.properties)
             target.properties = [
-                p for p in target.properties if p.key != self.propertyKey
+                p for p in target.properties if p.k != self.propertyKey
             ]
             after_len = len(target.properties)
             if before_len == after_len:
