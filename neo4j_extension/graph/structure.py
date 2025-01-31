@@ -88,8 +88,8 @@ class Entity(ABC):
     def __repr__(self) -> LiteralString:
         return self.to_cypher()
 
-    def __str__(self) -> str:
-        return f"{self.__class__.__name__}({self.to_python_props()})"
+    @abstractmethod
+    def __str__(self) -> str: ...
 
 
 class Node(Entity):
@@ -118,6 +118,15 @@ class Node(Entity):
         return cls(
             properties=properties, labels=entity.labels, globalId=globalId
         )
+
+    def __str__(self) -> str:
+        pyprops = self.to_python_props()
+        globalId = str(pyprops.pop("globalId", ""))
+        if globalId:
+            return f"{self.__class__.__name__}<{self.labelstring}, {globalId=}>{pyprops}"
+        else:
+            id = self.id
+            return f"{self.__class__.__name__}<{self.labelstring}, {id=}>{pyprops}"
 
     def to_cypher(self) -> LiteralString:
         props: LiteralString = self.to_cypher_props()
@@ -153,6 +162,15 @@ class Relationship(Entity):
         self.rel_type = rel_type
         self.start_node = start_node
         self.end_node = end_node
+
+    def __str__(self) -> str:
+        pyprops = self.to_python_props()
+        globalId = str(pyprops.pop("globalId", ""))
+        if globalId:
+            return f"{self.__class__.__name__}<({self.start_node.labelstring})-[{self.rel_type}]->({self.end_node.labelstring}), {globalId=}>{pyprops}"
+        else:
+            id = self.id
+            return f"{self.__class__.__name__}<({self.start_node.labelstring})-[{self.rel_type}]->({self.end_node.labelstring}), {id=}>{pyprops}"
 
     @classmethod
     def from_neo4j(  # pyright: ignore[reportIncompatibleMethodOverride]
@@ -200,7 +218,7 @@ class Graph:
             n = (
                 "\n"
                 + ",\n".join(
-                    "        " + repr(n) for n in self.nodes.values()
+                    "        " + str(n) for n in self.nodes.values()
                 )
                 + "\n    "
             )
@@ -211,7 +229,7 @@ class Graph:
             r = (
                 "\n"
                 + ",\n".join(
-                    "        " + repr(r) for r in self.relationships.values()
+                    "        " + str(r) for r in self.relationships.values()
                 )
                 + "\n    "
             )
