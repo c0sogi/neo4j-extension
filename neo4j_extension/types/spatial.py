@@ -6,7 +6,7 @@ import json
 import re
 from typing import LiteralString, Optional, cast
 
-from .abc import Neo4jType
+from ._abc import Neo4jType
 
 ###############################################################################
 # POINT (point({ x: ..., y: ..., [z: ...], crs: '...' }))

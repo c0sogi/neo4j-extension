@@ -3,7 +3,7 @@ from typing import Dict as PyDict
 from typing import List as PyList
 from typing import LiteralString, Union
 
-from .abc import Neo4jType
+from ._abc import Neo4jType
 from .primitive import (
     Neo4jBoolean,
     Neo4jByteArray,

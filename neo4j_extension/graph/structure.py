@@ -10,23 +10,21 @@ from typing import (
     Self,
     Union,
 )
-from typing import Dict as PyDict
-from typing import List as PyList
 
 import neo4j
 import neo4j.graph
 
-from .abc import Neo4jType
-from .conversion import (
+from ..types._abc import Neo4jType
+from ..types._utils import (
     PythonType,
     convert_neo4j_to_python,
     ensure_neo4j_type,
     ensure_python_type,
     get_neo4j_property_type_name,
 )
-from .primitive import Neo4jList
-from .typing import GraphSchema, Property, Triplet
-from .utils import escape_identifier
+from ..types.primitive import Neo4jList
+from ..typing import GraphSchema, Property, Triplet
+from ..utils import escape_identifier
 
 
 class Entity(ABC):
@@ -63,7 +61,7 @@ class Entity(ABC):
         return result
 
     def to_cypher_props(self) -> LiteralString:
-        pairs: PyList[LiteralString] = []
+        pairs: list[LiteralString] = []
         for k, v in self.properties.items():
             # 리스트인 경우 property 저장 가능 여부 검사
             if isinstance(v, Neo4jList):
@@ -111,7 +109,7 @@ class Node(Entity):
         cls,
         entity: neo4j.graph.Node,
     ) -> Self:
-        properties: PyDict[str, Any] = entity._properties
+        properties: dict[str, Any] = entity._properties
         globalId = properties.get("globalId")
         if globalId:
             globalId = str(globalId)
@@ -165,7 +163,7 @@ class Relationship(Entity):
             raise ValueError(
                 "Relationship must have both a start and end node."
             )
-        properties: PyDict[str, Any] = entity._properties
+        properties: dict[str, Any] = entity._properties
         globalId = properties.get("globalId")
         if globalId:
             globalId = str(globalId)

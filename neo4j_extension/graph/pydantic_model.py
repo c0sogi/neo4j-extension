@@ -14,8 +14,8 @@ from uuid import uuid4
 import neo4j
 from pydantic import BaseModel, Field
 
-from .conversion import PythonType, ensure_python_type
-from .graph import Graph, Node, Relationship
+from ..types._utils import PythonType, ensure_python_type
+from .structure import Graph, Node, Relationship
 
 E = TypeVar("E", bound="EntityModel")
 type PropertyType = int | float | str | bool | None | list[PropertyType]

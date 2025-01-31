@@ -34,10 +34,10 @@ from neo4j import (
     Session,
 )
 
-from .conversion import ensure_python_type
-from .graph import Graph, Node, Relationship
-from .typing import GraphSchema, Property
-from .utils import escape_identifier
+from ..graph.structure import Graph, Node, Relationship
+from ..types._utils import ensure_python_type
+from ..typing import GraphSchema, Property
+from ..utils import escape_identifier
 
 if TYPE_CHECKING:
     import ssl

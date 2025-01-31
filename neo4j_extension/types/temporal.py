@@ -4,7 +4,7 @@ import re
 from datetime import date, datetime, time, timedelta
 from typing import LiteralString, Optional, cast
 
-from .abc import Neo4jType
+from ._abc import Neo4jType
 
 ###############################################################################
 # DATE  (date('YYYY-MM-DD'))

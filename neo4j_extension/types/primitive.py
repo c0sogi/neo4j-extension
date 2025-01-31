@@ -13,8 +13,8 @@ from typing import (
     cast,
 )
 
-from .abc import Neo4jType
-from .utils import split_by_comma_top_level, tokenize_cypher_expression
+from ._abc import Neo4jType
+from ..utils import split_by_comma_top_level, tokenize_cypher_expression
 
 LIST_REGEX = re.compile(r"""^\s*\[\s*(.*)\s*\]\s*$""", re.DOTALL)
 MAP_REGEX = re.compile(r"""^\s*\{\s*(.*)\s*\}\s*$""", re.DOTALL)
@@ -238,7 +238,7 @@ class Neo4jList(Neo4jType[PyList[Neo4jType]]):
 
     @classmethod
     def from_cypher(cls, cypher_str: str) -> Neo4jList:
-        from .conversion import convert_cypher_to_neo4j
+        from ._utils import convert_cypher_to_neo4j
 
         m = LIST_REGEX.match(cypher_str)
         if not m:
@@ -260,7 +260,7 @@ class Neo4jList(Neo4jType[PyList[Neo4jType]]):
         Neo4j에 property로 저장 가능한 리스트인지(동질 타입 + null 없음 + 중첩 불가 등) 검사.
         (v1의 ListValue.is_storable_as_property 참고)
         """
-        from .conversion import get_neo4j_property_type_name
+        from ._utils import get_neo4j_property_type_name
 
         if not self.value:
             return True  # 빈 리스트는 가능
@@ -326,7 +326,7 @@ class Neo4jMap(Neo4jType[PyDict[str, Neo4jType]]):
 
     @classmethod
     def from_cypher(cls, cypher_str: str) -> Neo4jMap:
-        from .conversion import convert_cypher_to_neo4j
+        from ._utils import convert_cypher_to_neo4j
 
         m = MAP_REGEX.match(cypher_str)
         if not m:
