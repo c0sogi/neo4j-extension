@@ -1,6 +1,7 @@
-from copy import deepcopy
 import logging
+from abc import ABC, abstractmethod
 from collections import defaultdict
+from copy import deepcopy
 from typing import (
     Generic,
     Literal,
@@ -34,13 +35,18 @@ ActionTypes: TypeAlias = Literal[
     "UpdateNodeLabels",
     "UpdateRelationshipType",
 ]
+ActionT = TypeVar("ActionT", bound=ActionTypes)
 
 
-A = TypeVar("A", bound=ActionTypes)
+class GraphActionBase(BaseModel, Generic[ActionT], ABC):
+    type: ActionT
 
-
-class GraphActionBase(BaseModel, Generic[A]):
-    type: A
+    @abstractmethod
+    def apply_action(
+        self,
+        graph_nodes: dict[int, NodeModel],
+        graph_relationships: dict[int, RelationshipModel],
+    ) -> None: ...
 
     @model_validator(mode="before")
     def default_type(cls, values: Union[Self, dict]):
@@ -60,18 +66,129 @@ class GraphActionBase(BaseModel, Generic[A]):
 class AddNodeAction(GraphActionBase[Literal["AddNode"]]):
     nodes: list[NodeModel]
 
+    def apply_action(
+        self,
+        graph_nodes: dict[int, NodeModel],
+        graph_relationships: dict[int, RelationshipModel],
+    ) -> None:
+        nodes: defaultdict[int, list[NodeModel]] = defaultdict(list)
+        for node in self.nodes:
+            existing_node: Optional[NodeModel] = graph_nodes.get(
+                node.uniqueId
+            )
+            if existing_node is not None:
+                nodes[node.uniqueId].append(existing_node)
+            nodes[node.uniqueId].append(node)
+
+        for node_id, node_list in nodes.items():
+            if not node_list:
+                return
+            if len(node_list) > 1:
+                logger.warning(
+                    f"AddNodeAction: Node {node_id} added multiple times. Only the last one will be kept."
+                )
+            graph_nodes[node_id] = NodeModel.merge_with_id(
+                entities=node_list, uniqueId=node_id
+            )
+
 
 class AddRelationshipAction(GraphActionBase[Literal["AddRelationship"]]):
     relationships: list[RelationshipModel]
+
+    def apply_action(
+        self,
+        graph_nodes: dict[int, NodeModel],
+        graph_relationships: dict[int, RelationshipModel],
+    ) -> None:
+        relationships: defaultdict[int, list[RelationshipModel]] = (
+            defaultdict(list)
+        )
+        for relationship in self.relationships:
+            existing_relationship: Optional[RelationshipModel] = (
+                graph_relationships.get(relationship.uniqueId)
+            )
+            if existing_relationship is not None:
+                relationships[relationship.uniqueId].append(
+                    existing_relationship
+                )
+            relationships[relationship.uniqueId].append(relationship)
+
+        for relationship_id, relationship_list in relationships.items():
+            if not relationship_list:
+                return
+            if len(relationship_list) > 1:
+                logger.warning(
+                    f"AddRelationshipAction: Relationship {relationship_id} added multiple times. Only the last one will be kept."
+                )
+            graph_relationships[relationship_id] = (
+                RelationshipModel.merge_with_id(
+                    entities=relationship_list, uniqueId=relationship_id
+                )
+            )
 
 
 class AddPropertyAction(GraphActionBase[Literal["AddProperty"]]):
     entityId: int
     property: PropertyModel
 
+    def apply_action(
+        self,
+        graph_nodes: dict[int, NodeModel],
+        graph_relationships: dict[int, RelationshipModel],
+    ) -> None:
+        entity_id: int = self.entityId
+        property: PropertyModel = self.property
+        if entity_id in graph_nodes:
+            node: NodeModel = graph_nodes[entity_id]
+            if entity_id in graph_relationships:
+                logger.warning(
+                    f"AddPropertyAction: Both node {entity_id} and relationship {entity_id} found. Node will be used."
+                )
+            existing_property: Optional[PropertyModel] = next(
+                (p for p in node.properties if p.k == property.k),
+                None,
+            )
+            if existing_property is not None:
+                logger.warning(
+                    f"AddPropertyAction: Property {existing_property.k} already exists in node {entity_id}. Overwriting."
+                )
+                node.properties.remove(existing_property)
+                return
+            node.properties.append(property)
+        elif entity_id in graph_relationships:
+            relationship: RelationshipModel = graph_relationships[entity_id]
+            existing_property = next(
+                (p for p in relationship.properties if p.k == property.k),
+                None,
+            )
+            if existing_property is not None:
+                logger.warning(
+                    f"AddPropertyAction: Property {existing_property.k} already exists in relationship {entity_id}. Overwriting."
+                )
+                relationship.properties.remove(existing_property)
+                return
+            relationship.properties.append(property)
+        else:
+            logger.warning(
+                f"AddPropertyAction: Entity {entity_id} not found. Skip."
+            )
+
 
 class RemoveNodeAction(GraphActionBase[Literal["RemoveNode"]]):
     nodeIds: list[int]
+
+    def apply_action(
+        self,
+        graph_nodes: dict[int, NodeModel],
+        graph_relationships: dict[int, RelationshipModel],
+    ) -> None:
+        for node_id in self.nodeIds:
+            if node_id in graph_nodes:
+                del graph_nodes[node_id]
+            else:
+                logger.warning(
+                    f"RemoveNodeAction: node {node_id} not found. Skip."
+                )
 
 
 class RemoveRelationshipAction(
@@ -79,15 +196,82 @@ class RemoveRelationshipAction(
 ):
     relationshipIds: list[int]
 
+    def apply_action(
+        self,
+        graph_nodes: dict[int, NodeModel],
+        graph_relationships: dict[int, RelationshipModel],
+    ) -> None:
+        for relationship_id in self.relationshipIds:
+            if relationship_id in graph_relationships:
+                del graph_relationships[relationship_id]
+            else:
+                logger.warning(
+                    f"RemoveRelationshipAction: relationship {relationship_id} not found. Skip."
+                )
+
 
 class RemovePropertyAction(GraphActionBase[Literal["RemoveProperty"]]):
     entityId: int
     propertyKey: str
 
+    def apply_action(
+        self,
+        graph_nodes: dict[int, NodeModel],
+        graph_relationships: dict[int, RelationshipModel],
+    ) -> None:
+        entity_id: int = self.entityId
+        property_key: str = self.propertyKey
+        if entity_id in graph_nodes:
+            node: NodeModel = graph_nodes[entity_id]
+            if entity_id in graph_relationships:
+                logger.warning(
+                    f"RemovePropertyAction: Both node {entity_id} and relationship {entity_id} found. Node will be used."
+                )
+            existing_property: Optional[PropertyModel] = next(
+                (p for p in node.properties if p.k == property_key),
+                None,
+            )
+            if existing_property is not None:
+                node.properties.remove(existing_property)
+            else:
+                logger.warning(
+                    f"RemovePropertyAction: Property {property_key} not found in node {entity_id}. Skip."
+                )
+        elif entity_id in graph_relationships:
+            relationship: RelationshipModel = graph_relationships[entity_id]
+            existing_property = next(
+                (p for p in relationship.properties if p.k == property_key),
+                None,
+            )
+            if existing_property is not None:
+                relationship.properties.remove(existing_property)
+            else:
+                logger.warning(
+                    f"RemovePropertyAction: Property {property_key} not found in relationship {entity_id}. Skip."
+                )
+        else:
+            logger.warning(
+                f"RemovePropertyAction: Entity {entity_id} not found. Skip."
+            )
+
 
 class UpdateNodeLabelsAction(GraphActionBase[Literal["UpdateNodeLabels"]]):
     nodeId: int
     newLabels: list[str]
+
+    def apply_action(
+        self,
+        graph_nodes: dict[int, NodeModel],
+        graph_relationships: dict[int, RelationshipModel],
+    ) -> None:
+        node_id = self.nodeId
+        node: Optional[NodeModel] = graph_nodes.get(node_id)
+        if node is None:
+            logger.warning(
+                f"UpdateNodeLabelsAction: node {node_id} not found. Skip."
+            )
+            return
+        node.labels = self.newLabels
 
 
 class UpdateRelationshipTypeAction(
@@ -96,11 +280,74 @@ class UpdateRelationshipTypeAction(
     relationshipId: int
     newType: str
 
+    def apply_action(
+        self,
+        graph_nodes: dict[int, NodeModel],
+        graph_relationships: dict[int, RelationshipModel],
+    ) -> None:
+        relationship_id = self.relationshipId
+        relationship: Optional[RelationshipModel] = graph_relationships.get(
+            relationship_id
+        )
+        if relationship is None:
+            logger.warning(
+                f"UpdateRelationshipTypeAction: relationship {relationship_id} not found. Skip."
+            )
+            return
+        relationship.type = self.newType
+
 
 class UpdatePropertyAction(GraphActionBase[Literal["UpdateProperty"]]):
     entityId: int
     propertyKey: str
     newValue: PropertyType
+
+    def apply_action(
+        self,
+        graph_nodes: dict[int, NodeModel],
+        graph_relationships: dict[int, RelationshipModel],
+    ) -> None:
+        entity_id = self.entityId
+        property_key = self.propertyKey
+        property_value = self.newValue
+        if entity_id in graph_nodes:
+            node: NodeModel = graph_nodes[entity_id]
+            if entity_id in graph_relationships:
+                logger.warning(
+                    f"UpdatePropertyAction: Both node {entity_id} and relationship {entity_id} found. Node will be used."
+                )
+            existing_property = next(
+                (p for p in node.properties if p.k == property_key),
+                None,
+            )
+            if existing_property is not None:
+                existing_property.v = property_value
+            else:
+                logger.warning(
+                    f"UpdatePropertyAction: Property {property_key} not found in node {entity_id}. Creating new property."
+                )
+                node.properties.append(
+                    PropertyModel(k=property_key, v=property_value)
+                )
+        elif entity_id in graph_relationships:
+            relationship = graph_relationships[entity_id]
+            existing_property = next(
+                (p for p in relationship.properties if p.k == property_key),
+                None,
+            )
+            if existing_property is not None:
+                existing_property.v = property_value
+            else:
+                logger.warning(
+                    f"UpdatePropertyAction: Property {property_key} not found in relationship {entity_id}. Creating new property."
+                )
+                relationship.properties.append(
+                    PropertyModel(k=property_key, v=property_value)
+                )
+        else:
+            logger.warning(
+                f"UpdatePropertyAction: Entity {entity_id} not found. Skip."
+            )
 
 
 GraphAction = Union[
@@ -124,202 +371,10 @@ def apply_actions(
     graph_relationships: dict[int, RelationshipModel] = {
         rel.uniqueId: deepcopy(rel) for rel in graph.relationships
     }
-
     for action in actions:
-        if isinstance(action, AddNodeAction):
-            _ns: defaultdict[int, list[NodeModel]] = defaultdict(list)
-            for _n in action.nodes:
-                _existing_node: Optional[NodeModel] = graph_nodes.get(
-                    _n.uniqueId
-                )
-                if _existing_node is not None:
-                    _ns[_n.uniqueId].append(_existing_node)
-                _ns[_n.uniqueId].append(_n)
-
-            for _nid, _rl in _ns.items():
-                if not _rl:
-                    continue
-                if len(_rl) > 1:
-                    logger.warning(
-                        f"AddNodeAction: Node {_nid} added multiple times. Only the last one will be kept."
-                    )
-                graph_nodes[_nid] = NodeModel.merge_with_id(
-                    entities=_rl, uniqueId=_nid
-                )
-
-        elif isinstance(action, AddRelationshipAction):
-            _rs: defaultdict[int, list[RelationshipModel]] = defaultdict(
-                list
-            )
-            for _r in action.relationships:
-                _existing_rel: Optional[RelationshipModel] = (
-                    graph_relationships.get(_r.uniqueId)
-                )
-                if _existing_rel is not None:
-                    _rs[_r.uniqueId].append(_existing_rel)
-                _rs[_r.uniqueId].append(_r)
-
-            for _rid, _rl in _rs.items():
-                if not _rl:
-                    continue
-                if len(_rl) > 1:
-                    logger.warning(
-                        f"AddRelationshipAction: Relationship {_rid} added multiple times. Only the last one will be kept."
-                    )
-                graph_relationships[_rid] = RelationshipModel.merge_with_id(
-                    entities=_rl, uniqueId=_rid
-                )
-
-        elif isinstance(action, AddPropertyAction):
-            _eid = action.entityId
-            _p = action.property
-            if _eid in graph_nodes:
-                _n = graph_nodes[_eid]
-                if _eid in graph_relationships:
-                    logger.warning(
-                        f"AddPropertyAction: Both node {_eid} and relationship {_eid} found. Node will be used."
-                    )
-                _existing_p = next(
-                    (p for p in _n.properties if p.k == _p.k),
-                    None,
-                )
-                if _existing_p is not None:
-                    logger.warning(
-                        f"AddPropertyAction: Property {_existing_p.k} already exists in node {_eid}. Overwriting."
-                    )
-                    _n.properties.remove(_existing_p)
-                    continue
-                _n.properties.append(_p)
-            elif _eid in graph_relationships:
-                _r = graph_relationships[_eid]
-                _existing_p = next(
-                    (p for p in _r.properties if p.k == _p.k),
-                    None,
-                )
-                if _existing_p is not None:
-                    logger.warning(
-                        f"AddPropertyAction: Property {_existing_p.k} already exists in relationship {_eid}. Overwriting."
-                    )
-                    _r.properties.remove(_existing_p)
-                    continue
-                _r.properties.append(_p)
-            else:
-                logger.warning(
-                    f"AddPropertyAction: Entity {_eid} not found. Skip."
-                )
-
-        elif isinstance(action, RemoveNodeAction):
-            for _nid in action.nodeIds:
-                if _nid in graph_nodes:
-                    del graph_nodes[_nid]
-                else:
-                    logger.warning(
-                        f"RemoveNodeAction: node {_nid} not found. Skip."
-                    )
-
-        elif isinstance(action, RemoveRelationshipAction):
-            for _rid in action.relationshipIds:
-                if _rid in graph_relationships:
-                    del graph_relationships[_rid]
-                else:
-                    logger.warning(
-                        f"RemoveRelationshipAction: relationship {_rid} not found. Skip."
-                    )
-
-        elif isinstance(action, RemovePropertyAction):
-            _eid = action.entityId
-            _pk = action.propertyKey
-            if _eid in graph_nodes:
-                _n = graph_nodes[_eid]
-                if _eid in graph_relationships:
-                    logger.warning(
-                        f"RemovePropertyAction: Both node {_eid} and relationship {_eid} found. Node will be used."
-                    )
-                _existing_p = next(
-                    (p for p in _n.properties if p.k == _pk),
-                    None,
-                )
-                if _existing_p is not None:
-                    _n.properties.remove(_existing_p)
-                else:
-                    logger.warning(
-                        f"RemovePropertyAction: Property {_pk} not found in node {_eid}. Skip."
-                    )
-            elif _eid in graph_relationships:
-                _r = graph_relationships[_eid]
-                _existing_p = next(
-                    (p for p in _r.properties if p.k == _pk),
-                    None,
-                )
-                if _existing_p is not None:
-                    _r.properties.remove(_existing_p)
-                else:
-                    logger.warning(
-                        f"RemovePropertyAction: Property {_pk} not found in relationship {_eid}. Skip."
-                    )
-            else:
-                logger.warning(
-                    f"RemovePropertyAction: Entity {_eid} not found. Skip."
-                )
-
-        elif isinstance(action, UpdateNodeLabelsAction):
-            _nid = action.nodeId
-            _n = graph_nodes.get(_nid)
-            if _n is None:
-                logger.warning(
-                    f"UpdateNodeLabelsAction: node {_nid} not found. Skip."
-                )
-                continue
-            _n.labels = action.newLabels
-        elif isinstance(action, UpdateRelationshipTypeAction):
-            _rid = action.relationshipId
-            _r = graph_relationships.get(_rid)
-            if _r is None:
-                logger.warning(
-                    f"UpdateRelationshipTypeAction: relationship {_rid} not found. Skip."
-                )
-                continue
-            _r.type = action.newType
-
-        elif isinstance(action, UpdatePropertyAction):
-            _eid = action.entityId
-            _pk = action.propertyKey
-            _nv = action.newValue
-            if _eid in graph_nodes:
-                _n = graph_nodes[_eid]
-                if _eid in graph_relationships:
-                    logger.warning(
-                        f"UpdatePropertyAction: Both node {_eid} and relationship {_eid} found. Node will be used."
-                    )
-                _existing_p = next(
-                    (p for p in _n.properties if p.k == _pk),
-                    None,
-                )
-                if _existing_p is not None:
-                    _existing_p.v = _nv
-                else:
-                    logger.warning(
-                        f"UpdatePropertyAction: Property {_pk} not found in node {_eid}. Creating new property."
-                    )
-                    _n.properties.append(PropertyModel(k=_pk, v=_nv))
-            elif _eid in graph_relationships:
-                _r = graph_relationships[_eid]
-                _existing_p = next(
-                    (p for p in _r.properties if p.k == _pk),
-                    None,
-                )
-                if _existing_p is not None:
-                    _existing_p.v = _nv
-                else:
-                    logger.warning(
-                        f"UpdatePropertyAction: Property {_pk} not found in relationship {_eid}. Creating new property."
-                    )
-                    _r.properties.append(PropertyModel(k=_pk, v=_nv))
-            else:
-                logger.warning(
-                    f"UpdatePropertyAction: Entity {_eid} not found. Skip."
-                )
-
+        action.apply_action(
+            graph_nodes=graph_nodes, graph_relationships=graph_relationships
+        )
     return GraphModel(
         nodes=list(graph_nodes.values()),
         relationships=list(graph_relationships.values()),
