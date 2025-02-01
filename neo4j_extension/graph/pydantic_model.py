@@ -15,9 +15,8 @@ from uuid import uuid4
 import neo4j
 from pydantic import BaseModel, Field
 
-from neo4j_extension.utils import generate_new_id
-
-from ..types._utils import PythonType, ensure_python_type
+from ..types import PythonType, ensure_python_type
+from ..utils import generate_new_id
 from .structure import Graph, Node, Relationship
 
 E = TypeVar("E", bound="EntityModel")

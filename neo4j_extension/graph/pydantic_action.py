@@ -34,16 +34,7 @@ ActionTypes: TypeAlias = Literal[
     "UpdateNodeLabels",
     "UpdateRelationshipType",
 ]
-GraphAction = Union[
-    "AddNodeAction",
-    "RemoveNodeAction",
-    "AddRelationshipAction",
-    "RemoveRelationshipAction",
-    "AddPropertyAction",
-    "UpdatePropertyAction",
-    "RemovePropertyAction",
-    "UpdateNodeLabelsAction",
-]
+
 
 A = TypeVar("A", bound=ActionTypes)
 
@@ -110,6 +101,18 @@ class UpdatePropertyAction(GraphActionBase[Literal["UpdateProperty"]]):
     entityId: int
     propertyKey: str
     newValue: PropertyType
+
+
+GraphAction = Union[
+    AddNodeAction,
+    RemoveNodeAction,
+    AddRelationshipAction,
+    RemoveRelationshipAction,
+    AddPropertyAction,
+    UpdatePropertyAction,
+    RemovePropertyAction,
+    UpdateNodeLabelsAction,
+]
 
 
 def apply_actions(
