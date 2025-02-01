@@ -1,6 +1,6 @@
 import unicodedata
+from typing import Iterable, LiteralString, cast
 from typing import List as PyList
-from typing import LiteralString, cast
 
 DELIMITERS = {"[", "]", "(", ")", "{", "}", ",", ":", "'", '"'}
 
@@ -142,3 +142,8 @@ def split_by_comma_top_level(tokens: PyList[str]) -> PyList[str]:
         result.append("".join(current_tokens).strip())
 
     return result
+
+
+def generate_new_id(existing_ids: Iterable[int]) -> int:
+    """Assign a new ID that is not in the existing IDs."""
+    return max(existing_ids, default=0) + 1

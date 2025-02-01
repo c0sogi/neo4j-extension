@@ -28,9 +28,8 @@ from .graph import (
     RemoveRelationshipAction,
     UpdateNodeLabelsAction,
     UpdatePropertyAction,
+    UpdateRelationshipTypeAction,
     apply_actions,
-    generate_new_id,
-    sort_patch_actions,
 )
 from .types import (
     Neo4jBoolean,
@@ -66,6 +65,7 @@ from .typing import (
 )
 from .utils import (
     escape_identifier,
+    generate_new_id,
     get_safe_query,
     split_by_comma_top_level,
     tokenize_cypher_expression,
@@ -86,7 +86,6 @@ __all__ = [
     "apply_actions",
     "Entity",
     "EntityModel",
-    "generate_new_id",
     "Graph",
     "GraphAction",
     "GraphModel",
@@ -100,7 +99,7 @@ __all__ = [
     "RemoveNodeAction",
     "RemovePropertyAction",
     "RemoveRelationshipAction",
-    "sort_patch_actions",
+    "UpdateRelationshipTypeAction",
     "UpdateNodeLabelsAction",
     "UpdatePropertyAction",
     "RelationshipModel",
@@ -161,6 +160,7 @@ __all__ = [
     # utils
     "escape_identifier",
     "get_safe_query",
+    "generate_new_id",
     "split_by_comma_top_level",
     "tokenize_cypher_expression",
 ]

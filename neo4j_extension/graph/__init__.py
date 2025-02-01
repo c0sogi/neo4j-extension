@@ -8,9 +8,8 @@ from .pydantic_action import (
     RemoveRelationshipAction,
     UpdateNodeLabelsAction,
     UpdatePropertyAction,
+    UpdateRelationshipTypeAction,
     apply_actions,
-    generate_new_id,
-    sort_patch_actions,
 )
 from .pydantic_model import (
     EntityModel,
@@ -24,7 +23,6 @@ from .pydantic_model import (
 )
 from .structure import Entity, Graph, Node, Relationship
 
-
 __all__ = [
     "AddNodeAction",
     "AddPropertyAction",
@@ -32,7 +30,6 @@ __all__ = [
     "apply_actions",
     "Entity",
     "EntityModel",
-    "generate_new_id",
     "Graph",
     "GraphAction",
     "GraphModel",
@@ -46,8 +43,8 @@ __all__ = [
     "RemoveNodeAction",
     "RemovePropertyAction",
     "RemoveRelationshipAction",
-    "sort_patch_actions",
     "UpdateNodeLabelsAction",
     "UpdatePropertyAction",
+    "UpdateRelationshipTypeAction",
     "RelationshipModel",
 ]

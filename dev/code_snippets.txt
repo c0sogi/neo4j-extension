@@ -1,7 +1,31 @@
-### neo4j_extension/utils.py
+### neo4j_extension\typing.py
+from typing import Any, TypedDict
+
+class Property(TypedDict):
+    property: str
+    type: str
+
+class Triplet(TypedDict):
+    start: str
+    type: str
+    end: str
+
+class StructuredSchemaMetadata(TypedDict):
+    constraint: list[dict[str, Any]]
+    index: list[dict[str, Any]]
+
+class GraphSchema(TypedDict):
+    node_props: dict[str, list[Property]]
+    rel_props: dict[str, list[Property]]
+    relationships: list[Triplet]
+    metadata: StructuredSchemaMetadata
+
+==========
+
+### neo4j_extension\utils.py
 import unicodedata
+from typing import Iterable, LiteralString, cast
 from typing import List as PyList
-from typing import LiteralString, cast
 DELIMITERS = {'[', ']', '(', ')', '{', '}', ',', ':', "'", '"'}
 
 def escape_identifier(key: str) -> LiteralString:
@@ -117,1172 +141,23 @@ def split_by_comma_top_level(tokens: PyList[str]) -> PyList[str]:
         result.append(''.join(current_tokens).strip())
     return result
 
+def generate_new_id(existing_ids: Iterable[int]) -> int:
+    """Assign a new ID that is not in the existing IDs."""
+    return max(existing_ids, default=0) + 1
+
 ==========
 
-### neo4j_extension/__init__.py
+### neo4j_extension\__init__.py
 from .bolt import AsyncDriverKwargs, DriverKwargs, Neo4jConnection, SessionKwargs, with_async_session, with_session
-from .graph import AddNodeAction, AddPropertyAction, AddRelationshipAction, Entity, EntityModel, Graph, GraphAction, GraphModel, Node, NodeModel, OrphanConnectionProposal, OrphanNodesFoundException, PropertyModel, PropertyType, Relationship, RelationshipModel, RemoveNodeAction, RemovePropertyAction, RemoveRelationshipAction, UpdateNodeLabelsAction, UpdatePropertyAction, apply_actions, generate_new_id, sort_patch_actions
+from .graph import AddNodeAction, AddPropertyAction, AddRelationshipAction, Entity, EntityModel, Graph, GraphAction, GraphModel, Node, NodeModel, OrphanConnectionProposal, OrphanNodesFoundException, PropertyModel, PropertyType, Relationship, RelationshipModel, RemoveNodeAction, RemovePropertyAction, RemoveRelationshipAction, UpdateNodeLabelsAction, UpdatePropertyAction, UpdateRelationshipTypeAction, apply_actions
 from .types import Neo4jBoolean, Neo4jByteArray, Neo4jDate, Neo4jDuration, Neo4jFloat, Neo4jInteger, Neo4jList, Neo4jLocalDateTime, Neo4jLocalTime, Neo4jMap, Neo4jNull, Neo4jPoint, Neo4jString, Neo4jType, Neo4jZonedDateTime, Neo4jZonedTime, PointValue, PythonType, convert_cypher_to_neo4j, convert_neo4j_to_python, convert_python_to_neo4j, ensure_neo4j_type, ensure_python_type, get_neo4j_property_type_name
 from .typing import GraphSchema, Property, StructuredSchemaMetadata, Triplet
-from .utils import escape_identifier, get_safe_query, split_by_comma_top_level, tokenize_cypher_expression
-__all__ = ['Neo4jConnection', 'with_session', 'with_async_session', 'DriverKwargs', 'AsyncDriverKwargs', 'SessionKwargs', 'AddNodeAction', 'AddPropertyAction', 'AddRelationshipAction', 'apply_actions', 'Entity', 'EntityModel', 'generate_new_id', 'Graph', 'GraphAction', 'GraphModel', 'Node', 'NodeModel', 'OrphanConnectionProposal', 'OrphanNodesFoundException', 'PropertyModel', 'PropertyType', 'Relationship', 'RemoveNodeAction', 'RemovePropertyAction', 'RemoveRelationshipAction', 'sort_patch_actions', 'UpdateNodeLabelsAction', 'UpdatePropertyAction', 'RelationshipModel', 'Neo4jBoolean', 'Neo4jByteArray', 'Neo4jFloat', 'Neo4jInteger', 'Neo4jList', 'Neo4jMap', 'Neo4jNull', 'Neo4jString', 'Neo4jPoint', 'PointValue', 'Neo4jDate', 'Neo4jDuration', 'Neo4jType', 'Neo4jLocalDateTime', 'Neo4jLocalTime', 'Neo4jZonedDateTime', 'Neo4jZonedTime', 'PythonType', 'convert_neo4j_to_python', 'ensure_neo4j_type', 'get_neo4j_property_type_name', 'convert_cypher_to_neo4j', 'convert_python_to_neo4j', 'ensure_python_type', 'Neo4jBoolean', 'Neo4jByteArray', 'Neo4jFloat', 'Neo4jInteger', 'Neo4jList', 'Neo4jMap', 'Neo4jNull', 'Neo4jString', 'Neo4jPoint', 'PointValue', 'Neo4jDate', 'Neo4jDuration', 'Neo4jType', 'Neo4jLocalDateTime', 'Neo4jLocalTime', 'Neo4jZonedDateTime', 'Neo4jZonedTime', 'PythonType', 'convert_neo4j_to_python', 'ensure_neo4j_type', 'get_neo4j_property_type_name', 'convert_cypher_to_neo4j', 'convert_python_to_neo4j', 'ensure_python_type', 'GraphSchema', 'StructuredSchemaMetadata', 'Property', 'Triplet', 'escape_identifier', 'get_safe_query', 'split_by_comma_top_level', 'tokenize_cypher_expression']
+from .utils import escape_identifier, generate_new_id, get_safe_query, split_by_comma_top_level, tokenize_cypher_expression
+__all__ = ['Neo4jConnection', 'with_session', 'with_async_session', 'DriverKwargs', 'AsyncDriverKwargs', 'SessionKwargs', 'AddNodeAction', 'AddPropertyAction', 'AddRelationshipAction', 'apply_actions', 'Entity', 'EntityModel', 'Graph', 'GraphAction', 'GraphModel', 'Node', 'NodeModel', 'OrphanConnectionProposal', 'OrphanNodesFoundException', 'PropertyModel', 'PropertyType', 'Relationship', 'RemoveNodeAction', 'RemovePropertyAction', 'RemoveRelationshipAction', 'UpdateRelationshipTypeAction', 'UpdateNodeLabelsAction', 'UpdatePropertyAction', 'RelationshipModel', 'Neo4jBoolean', 'Neo4jByteArray', 'Neo4jFloat', 'Neo4jInteger', 'Neo4jList', 'Neo4jMap', 'Neo4jNull', 'Neo4jString', 'Neo4jPoint', 'PointValue', 'Neo4jDate', 'Neo4jDuration', 'Neo4jType', 'Neo4jLocalDateTime', 'Neo4jLocalTime', 'Neo4jZonedDateTime', 'Neo4jZonedTime', 'PythonType', 'convert_neo4j_to_python', 'ensure_neo4j_type', 'get_neo4j_property_type_name', 'convert_cypher_to_neo4j', 'convert_python_to_neo4j', 'ensure_python_type', 'Neo4jBoolean', 'Neo4jByteArray', 'Neo4jFloat', 'Neo4jInteger', 'Neo4jList', 'Neo4jMap', 'Neo4jNull', 'Neo4jString', 'Neo4jPoint', 'PointValue', 'Neo4jDate', 'Neo4jDuration', 'Neo4jType', 'Neo4jLocalDateTime', 'Neo4jLocalTime', 'Neo4jZonedDateTime', 'Neo4jZonedTime', 'PythonType', 'convert_neo4j_to_python', 'ensure_neo4j_type', 'get_neo4j_property_type_name', 'convert_cypher_to_neo4j', 'convert_python_to_neo4j', 'ensure_python_type', 'GraphSchema', 'StructuredSchemaMetadata', 'Property', 'Triplet', 'escape_identifier', 'get_safe_query', 'generate_new_id', 'split_by_comma_top_level', 'tokenize_cypher_expression']
 
 ==========
 
-### neo4j_extension/typing.py
-from typing import Any, TypedDict
-
-class Property(TypedDict):
-    property: str
-    type: str
-
-class Triplet(TypedDict):
-    start: str
-    type: str
-    end: str
-
-class StructuredSchemaMetadata(TypedDict):
-    constraint: list[dict[str, Any]]
-    index: list[dict[str, Any]]
-
-class GraphSchema(TypedDict):
-    node_props: dict[str, list[Property]]
-    rel_props: dict[str, list[Property]]
-    relationships: list[Triplet]
-    metadata: StructuredSchemaMetadata
-
-==========
-
-### neo4j_extension/graph/pydantic_model.py
-from __future__ import annotations
-from abc import ABC, abstractmethod
-from collections import defaultdict
-from typing import Optional, Sequence, Type, TypeVar, cast
-from uuid import uuid4
-import neo4j
-from pydantic import BaseModel, Field
-from ..types._utils import PythonType, ensure_python_type
-from .structure import Graph, Node, Relationship
-E = TypeVar('E', bound='EntityModel')
-type PropertyType = int | float | str | bool | None | list[PropertyType]
-
-class PropertyModel(BaseModel):
-    """
-    Represents a single key-value property for a node or relationship.
-    """
-    k: str
-    v: PropertyType
-
-class EntityModel(BaseModel, ABC):
-    """
-    Common fields for nodes and relationships.
-    """
-    properties: list[PropertyModel] = Field(default_factory=list, description='MUST include ALL key-value properties for this entity from the document.')
-    uniqueId: int = Field(description='A unique ID for the entity.')
-
-    @abstractmethod
-    def to_neo4j(self, *args, **kwargs) -> neo4j.Entity:
-        ...
-
-    @property
-    def python_props(self) -> dict[str, PythonType]:
-        return {prop.k: ensure_python_type(cast(PythonType, prop.v)) for prop in self.properties}
-
-    @property
-    def json_props(self) -> dict[str, PropertyType]:
-        return {prop.k: prop.v for prop in self.properties}
-
-    @classmethod
-    def merge_properties(cls: Type[E], entities: Sequence[E]) -> E:
-        """
-        For property normalization, if multiple entities are merged, combine
-        their properties and unify duplicates in a list-like manner.
-        """
-        if not entities:
-            raise ValueError('No entities to merge.')
-        entity: EntityModel = entities[0]
-        properties: list[PropertyModel] = []
-        for e in entities:
-            properties.extend(e.properties)
-        normalized_props: dict[str, list[PropertyType] | PropertyType] = {}
-        for p in properties:
-            normalized_value: PropertyType = p.v.strip().lower() if isinstance(p.v, str) else p.v
-            if p.k in normalized_props:
-                existing_val: PropertyType = normalized_props[p.k]
-                if not isinstance(existing_val, list):
-                    existing_val = [existing_val]
-                existing_val.append(normalized_value)
-                normalized_props[p.k] = existing_val
-            else:
-                normalized_props[p.k] = normalized_value
-        for k, v in normalized_props.items():
-            if isinstance(v, list) and len(v) == 1:
-                normalized_props[k] = v[0]
-        entity.properties.clear()
-        entity.properties.extend([PropertyModel(k=k, v=v) for k, v in normalized_props.items()])
-        if isinstance(entity, NodeModel):
-            merged_labels: list[str] = []
-            for e in (e for e in entities if isinstance(e, NodeModel)):
-                merged_labels.extend(e.labels)
-            merged_labels = sorted(set(merged_labels))
-            entity.labels = merged_labels
-        return entity
-
-class NodeModel(EntityModel):
-    """
-    A single node in the graph.
-    """
-    labels: list[str] = Field(description='Labels that categorize this node (e.g., ["Animal"], ["Dog"], ["Animal", "Dog"]).')
-
-    def to_neo4j(self, prefix: str) -> Node:
-        return Node(properties=self.python_props, labels=set(self.labels), globalId=f'{prefix}#{self.uniqueId}')
-
-    @property
-    def signature(self) -> str:
-        labels_key: str = '_'.join(sorted(self.labels))
-        name_val = str(self.json_props.get('name', ''))
-        return f'{labels_key}::{name_val}'
-
-    def __add__(self, other: NodeModel) -> NodeModel:
-        """
-        Merges two nodes: unify labels, unify property values, handle duplicates.
-        """
-        merged_labels = sorted(set(self.labels + other.labels))
-        a_props = self.json_props
-        b_props = other.json_props
-        merged_props = {}
-        all_keys = set(a_props.keys()).union(b_props.keys())
-        for key in all_keys:
-            a_val = a_props.get(key)
-            b_val = b_props.get(key)
-            if a_val is None:
-                merged_props[key] = b_val
-            elif b_val is None:
-                merged_props[key] = a_val
-            else:
-                if isinstance(a_val, list) and isinstance(b_val, list):
-                    merged_list = a_val + b_val
-                elif isinstance(a_val, list):
-                    merged_list = a_val + [b_val]
-                elif isinstance(b_val, list):
-                    merged_list = [a_val] + b_val
-                else:
-                    merged_list = [a_val, b_val]
-                seen = set()
-                deduped = []
-                for item in merged_list:
-                    item_str = str(item)
-                    if item_str not in seen:
-                        seen.add(item_str)
-                        deduped.append(item)
-                merged_props[key] = deduped if len(deduped) > 1 else deduped[0]
-        merged_props_list = [PropertyModel(k=key, v=value) for key, value in merged_props.items()]
-        return NodeModel(uniqueId=self.uniqueId, labels=merged_labels, properties=merged_props_list)
-
-    def orphan_find_original_node_index(self, nodes: list[NodeModel]) -> Optional[int]:
-        """
-        Given a candidate node, find its original index in 'nodes' by matching uniqueId.
-        Return None if not found.
-        """
-        for i, n in enumerate(nodes):
-            if n.uniqueId == self.uniqueId:
-                return i
-        else:
-            return None
-
-    def orphan_find_by_property_similarity(self, candidates: list[NodeModel]) -> Optional[NodeModel]:
-        if not candidates:
-            return None
-        PROPERTY_WEIGHTS = {'name': 3.0, 'id': 2.5, 'identifier': 2.5, 'title': 2.0, 'type': 1.5}
-
-        def similarity(a: PropertyType, b: PropertyType) -> float:
-            if a is None or b is None:
-                return 0.0
-            if isinstance(a, str) and isinstance(b, str):
-                a_s, b_s = (a.lower().strip(), b.lower().strip())
-                if a_s == b_s:
-                    return 1.0
-                max_len = max(len(a_s), len(b_s))
-                return 1.0 - abs(len(a_s) - len(b_s)) / max_len
-            return 1.0 if a == b else 0.0
-        orphan_props = self.json_props
-        scores = []
-        for candidate in candidates:
-            candidate_props = candidate.json_props
-            total_score = 0.0
-            for key, weight in PROPERTY_WEIGHTS.items():
-                ov = orphan_props.get(key)
-                cv = candidate_props.get(key)
-                if ov is not None and cv is not None:
-                    total_score += weight * similarity(ov, cv)
-            scores.append((total_score, candidate))
-        max_score = max((s for s, _ in scores), default=0.0)
-        top_candidates = [c for s, c in scores if s == max_score]
-        return top_candidates[0] if top_candidates else None
-
-    def orphan_find_by_label_match(self, candidates: list[NodeModel]) -> Optional[NodeModel]:
-        if not candidates:
-            return None
-        label_scores = []
-        orphan_labels = set(self.labels)
-        for candidate in candidates:
-            candidate_labels = set(candidate.labels)
-            score = len(orphan_labels & candidate_labels)
-            label_scores.append((score, candidate))
-        if not label_scores:
-            return None
-        max_score = max((s for s, _ in label_scores))
-        top_candidates = [c for s, c in label_scores if s == max_score]
-        if len(top_candidates) > 1:
-            return self.orphan_find_by_property_similarity(top_candidates)
-        return top_candidates[0] if top_candidates else None
-
-class RelationshipModel(EntityModel):
-    """
-    A single relationship (edge) in the graph.
-    """
-    type: str = Field(description='The type of this relationship.')
-    startNode: NodeModel = Field(description='The start node for this relationship.')
-    endNode: NodeModel = Field(description='The end node for this relationship.')
-
-    def to_neo4j(self, node_map: dict[str, Node], prefix: str) -> Relationship:
-        start_neo4j_node = node_map[f'{prefix}#{self.startNode.uniqueId}']
-        end_neo4j_node = node_map[f'{prefix}#{self.endNode.uniqueId}']
-        return Relationship(properties=self.python_props, rel_type=self.type, start_node=start_neo4j_node, end_node=end_neo4j_node, globalId=f'{prefix}#{self.uniqueId}')
-
-class GraphModel(BaseModel):
-    """
-    Contains a collection of nodes and relationships.
-    """
-    nodes: list[NodeModel] = Field(description='List of all nodes in the graph.')
-    relationships: list[RelationshipModel] = Field(description='List of all relationships (edges) in the graph.')
-
-    def to_neo4j(self) -> Graph:
-        g = Graph()
-        node_map: dict[str, Node] = {}
-        prefix = uuid4().hex
-        for node in self.nodes:
-            node.uniqueId = int(node.uniqueId)
-        for rel in self.relationships:
-            rel.uniqueId = int(rel.uniqueId)
-        for node_model in self.nodes:
-            node_obj = node_model.to_neo4j(prefix=prefix)
-            g.add_node(node_obj)
-            node_map[f'{prefix}#{node_model.uniqueId}'] = node_obj
-        for rel_model in self.relationships:
-            rel_obj = rel_model.to_neo4j(node_map=node_map, prefix=prefix)
-            g.add_relationship(rel_obj)
-        return g
-
-    @property
-    def entities(self) -> list[EntityModel]:
-        return list(self.nodes + self.relationships)
-
-    def model_post_init(self, __context: dict) -> None:
-        """
-        After parsing this model, fix any ID conflicts (merge duplicates).
-        """
-        self.resolve_merge_conflicts()
-
-    def resolve_merge_conflicts(self, id_start_from: int=1) -> None:
-        """
-        개선된 resolve_merge_conflicts 함수.
-
-        1) 노드끼리, 관계끼리 각각 ID 충돌을 해소하여 병합(중복 uniqueId가 같은 엔티티들을 합침).
-        - NODE ↔ RELATIONSHIP 간 ID 충돌이 있을 경우, 관계의 ID를 자동 재할당하여 회피.
-
-        2) 관계 병합 시 startNode, endNode, type)가 완전히 같은 관계들을 하나로 합쳐서 중복 에지를 제거한다(멀티에지 불허).
-
-        3) 최종적으로 노드와 관계 각각에 대해 ID를 재할당하여, 정렬된 순서로 1부터 다시 부여.
-        (id_start_from 파라미터로 시작값 조정 가능)
-
-        4) 관계에서 참조하는 startNode, endNode의 ID도 재할당 ID로 매핑해주고,
-        유효하지 않은 참조(삭제된 노드)는 제거한다.
-        """
-        original_nodes = list(self.nodes)
-        original_rels = list(self.relationships)
-        node_id_map: defaultdict[int, list[NodeModel]] = defaultdict(list)
-        for node in original_nodes:
-            node_id_map[node.uniqueId].append(node)
-        merged_nodes: list[NodeModel] = []
-        for old_id, same_id_nodes in node_id_map.items():
-            if len(same_id_nodes) == 1:
-                merged_nodes.append(same_id_nodes[0])
-            else:
-                merged_node = NodeModel.merge_properties(same_id_nodes)
-                merged_nodes.append(merged_node)
-        node_id_set: set[int] = {n.uniqueId for n in merged_nodes}
-        rel_id_set: set[int] = {r.uniqueId for r in original_rels}
-        conflict_ids: set[int] = node_id_set.intersection(rel_id_set)
-        if conflict_ids:
-            next_temp_id: int = max(node_id_set.union(rel_id_set)) + 1
-            for rel in original_rels:
-                if rel.uniqueId in conflict_ids:
-                    rel.uniqueId = next_temp_id
-                    next_temp_id += 1
-        rel_id_map: defaultdict[int, list[RelationshipModel]] = defaultdict(list)
-        for rel in original_rels:
-            rel_id_map[rel.uniqueId].append(rel)
-        merged_rels: list[RelationshipModel] = []
-        for old_id, same_id_rels in rel_id_map.items():
-            if len(same_id_rels) == 1:
-                merged_rels.append(same_id_rels[0])
-            else:
-                all_types: set[str] = {r.type for r in same_id_rels}
-                if len(all_types) == 1:
-                    merged_rel = RelationshipModel.merge_properties(same_id_rels)
-                    merged_rels.append(merged_rel)
-                else:
-                    for r in same_id_rels:
-                        r.uniqueId = id_start_from
-                        id_start_from += 1
-                        merged_rels.append(r)
-        new_nodes_sorted = sorted(merged_nodes, key=lambda n: n.uniqueId)
-        new_rels_sorted = sorted(merged_rels, key=lambda r: r.uniqueId)
-        new_id_map_for_nodes: dict[int, int] = {}
-        current_id: int = id_start_from
-        for node in new_nodes_sorted:
-            old_node_id = node.uniqueId
-            new_id_map_for_nodes[old_node_id] = current_id
-            node.uniqueId = current_id
-            current_id += 1
-        new_id_map_for_rels = {}
-        for rel in new_rels_sorted:
-            old_rel_id = rel.uniqueId
-            new_id_map_for_rels[old_rel_id] = current_id
-            rel.uniqueId = current_id
-            current_id += 1
-        valid_rels: list[RelationshipModel] = []
-        for rel in new_rels_sorted:
-            s_old = rel.startNode.uniqueId
-            e_old = rel.endNode.uniqueId
-            if s_old not in new_id_map_for_nodes or e_old not in new_id_map_for_nodes:
-                continue
-            rel.startNode.uniqueId = new_id_map_for_nodes[s_old]
-            rel.endNode.uniqueId = new_id_map_for_nodes[e_old]
-            valid_rels.append(rel)
-        rel_key_map = defaultdict(list)
-        for r in valid_rels:
-            key = (r.startNode.uniqueId, r.endNode.uniqueId, r.type)
-            rel_key_map[key].append(r)
-        final_rels = []
-        for same_edges in rel_key_map.values():
-            if len(same_edges) == 1:
-                final_rels.append(same_edges[0])
-            else:
-                merged_edge = RelationshipModel.merge_properties(same_edges)
-                final_rels.append(merged_edge)
-        self.nodes.clear()
-        self.nodes.extend(new_nodes_sorted)
-        self.relationships.clear()
-        self.relationships.extend(final_rels)
-
-    def add_relationships(self, rels_to_add: list[RelationshipModel]) -> GraphModel:
-        new_relationships = list(self.relationships)
-        new_relationships.extend(rels_to_add)
-        return GraphModel(nodes=self.nodes, relationships=new_relationships)
-
-    def orphan_find_orphan_node_ids(self, components: list[list[int]]) -> list[int]:
-        if len(components) <= 1:
-            return []
-        main_comp: list[int] = max(components, key=len)
-        orphans: list[int] = []
-        for comp in components:
-            if comp is not main_comp:
-                for idx in comp:
-                    orphans.append(self.nodes[idx].uniqueId)
-        return orphans
-
-    def orphan_find_by_graph_topology(self, candidates: list[NodeModel]) -> Optional[NodeModel]:
-        if not candidates:
-            return None
-        degree_centrality = defaultdict(int)
-        for rel in self.relationships:
-            degree_centrality[rel.startNode.uniqueId] += 1
-            degree_centrality[rel.endNode.uniqueId] += 1
-        scores: list[tuple[int, NodeModel]] = sorted([(degree_centrality[candidate.uniqueId], candidate) for candidate in candidates], key=lambda x: x[0])
-        if not scores:
-            return None
-        highest_score, highest_score_node = scores[-1]
-        return highest_score_node
-
-    def orphan_find_central_node(self, nodes: list[NodeModel]) -> NodeModel:
-        """
-        Return the 'central' node in the subgraph by highest connectivity.
-        If none found, fallback to the first node.
-        """
-        if not nodes:
-            raise ValueError('No nodes given to _find_central_node')
-        node_ids_in_main: set[int] = {n.uniqueId for n in nodes}
-        connection_counts = defaultdict(int)
-        for rel in self.relationships:
-            if rel.startNode.uniqueId in node_ids_in_main:
-                connection_counts[rel.startNode.uniqueId] += 1
-            if rel.endNode.uniqueId in node_ids_in_main:
-                connection_counts[rel.endNode.uniqueId] += 1
-        if not connection_counts:
-            return nodes[0]
-        max_node_id = max(connection_counts, key=lambda k: connection_counts[k])
-        return next((n for n in nodes if n.uniqueId == max_node_id))
-
-    def orphan_validate_relationships(self, rels_to_add: list[RelationshipModel]) -> bool:
-        existing = set(((r.startNode.uniqueId, r.endNode.uniqueId, r.type) for r in self.relationships))
-        for r in rels_to_add:
-            triple: tuple[int, int, str] = (r.startNode.uniqueId, r.endNode.uniqueId, r.type)
-            if triple in existing:
-                return False
-        return True
-
-    def orphan_infer_relationship_type(self, source: NodeModel, target: NodeModel) -> str:
-        type_counter: defaultdict[str, int] = defaultdict(int)
-        for rel in self.relationships:
-            type_counter[rel.type] += 1
-        if type_counter:
-            common_type: str = max(type_counter, key=lambda k: type_counter[k])
-            return common_type
-        source_labels = '_'.join(sorted(source.labels))
-        target_labels = '_'.join(sorted(target.labels))
-        return f'{source_labels}_TO_{target_labels}'
-
-    def orphan_find_heuristic_connection(self, orphan_data: list[tuple[NodeModel, list[NodeModel]]], start_id: int, fallback_node: Optional[NodeModel]) -> list[RelationshipModel]:
-        new_rels = []
-        current_id = start_id
-        for orphan, candidates in orphan_data:
-            best_match = orphan.orphan_find_by_label_match(candidates)
-            if not best_match:
-                best_match = orphan.orphan_find_by_property_similarity(candidates)
-            if not best_match:
-                best_match = self.orphan_find_by_graph_topology(candidates)
-            target_node = best_match or fallback_node
-            if not target_node:
-                continue
-            rel_type = self.orphan_infer_relationship_type(orphan, target_node)
-            new_rels.append(RelationshipModel(uniqueId=current_id, type=rel_type, startNode=orphan, endNode=target_node, properties=[]))
-            current_id += 1
-        return new_rels
-
-    def orphan_build_adjacency(self) -> tuple[list[list[int]], dict[int, int]]:
-        node_idx_map: dict[int, int] = {}
-        for i, n in enumerate(self.nodes):
-            node_idx_map[n.uniqueId] = i
-        adjacency = [[] for _ in range(len(self.nodes))]
-        for r in self.relationships:
-            s_i = node_idx_map[r.startNode.uniqueId]
-            e_i = node_idx_map[r.endNode.uniqueId]
-            adjacency[s_i].append(e_i)
-            adjacency[e_i].append(s_i)
-        return (adjacency, node_idx_map)
-
-    def merge_duplicate_nodes(self) -> GraphModel:
-        """
-        Merges nodes that share the same 'signature' (labels, name property, etc.).
-        Updates relationships to refer to the merged node.
-        """
-        original_nodes: list[NodeModel] = self.nodes
-        relationships: list[RelationshipModel] = self.relationships
-        signatures: dict[str, list[int]] = {}
-        for idx, node in enumerate(original_nodes):
-            sig = node.signature
-            signatures.setdefault(sig, []).append(idx)
-        merge_map: dict[int, int] = {}
-        new_nodes: list[NodeModel] = []
-        for sig, indices in signatures.items():
-            if len(indices) == 1:
-                i = indices[0]
-                merge_map[i] = len(new_nodes)
-                new_nodes.append(original_nodes[i])
-            else:
-                base_node = original_nodes[indices[0]]
-                for i in indices[1:]:
-                    base_node = base_node + original_nodes[i]
-                merged_idx = len(new_nodes)
-                for i in indices:
-                    merge_map[i] = merged_idx
-                new_nodes.append(base_node)
-        new_relationships: list[RelationshipModel] = []
-        for rel in relationships:
-            s_idx: Optional[int] = rel.startNode.orphan_find_original_node_index(original_nodes)
-            if s_idx is None or s_idx not in merge_map:
-                continue
-            new_s: NodeModel = new_nodes[merge_map[s_idx]]
-            e_idx: Optional[int] = rel.endNode.orphan_find_original_node_index(original_nodes)
-            if e_idx is None or e_idx not in merge_map:
-                continue
-            new_e: NodeModel = new_nodes[merge_map[e_idx]]
-            if new_s.uniqueId == new_e.uniqueId:
-                continue
-            new_relationships.append(RelationshipModel(uniqueId=rel.uniqueId, type=rel.type, properties=rel.properties, startNode=new_s, endNode=new_e))
-        return GraphModel(nodes=new_nodes, relationships=new_relationships)
-
-class OrphanConnectionProposal(BaseModel):
-    """Contains proposed relationships for connecting orphan nodes."""
-    relationships: list[RelationshipModel] = Field(description='Proposed relationships to connect orphan nodes.')
-
-    def process_llm_response(self, next_id: int) -> list[RelationshipModel]:
-        new_rels = []
-        for rel in self.relationships:
-            new_rel = RelationshipModel(uniqueId=next_id, type=rel.type, startNode=rel.startNode, endNode=rel.endNode, properties=rel.properties.copy())
-            new_rels.append(new_rel)
-            next_id += 1
-        return new_rels
-
-class OrphanNodesFoundException(Exception):
-    """
-    Raised when orphan nodes are detected and automatically proposed relationships
-    fail validation.
-    """
-
-    def __init__(self, message: str, partial_graph: GraphModel, orphan_node_ids: list[int], proposed_relationships: list[RelationshipModel]):
-        super().__init__(message)
-        self.partial_graph = partial_graph
-        self.orphan_node_ids = orphan_node_ids
-        self.proposed_relationships = proposed_relationships
-
-==========
-
-### neo4j_extension/graph/structure.py
-from __future__ import annotations
-from abc import ABC, abstractmethod
-from collections import defaultdict
-from typing import Any, LiteralString, Mapping, Optional, Self, Union, override
-import neo4j
-import neo4j.graph
-from ..types._abc import Neo4jType
-from ..types._utils import PythonType, convert_neo4j_to_python, ensure_neo4j_type, ensure_python_type, get_neo4j_property_type_name
-from ..types.primitive import Neo4jList
-from ..typing import GraphSchema, Property, Triplet
-from ..utils import escape_identifier
-
-class Entity(ABC):
-    properties: dict[str, Neo4jType]
-    globalId: Optional[str]
-
-    def __init__(self, properties: Mapping[str, Union[Neo4jType, PythonType]], globalId: Optional[str]=None) -> None:
-        self.globalId = globalId
-        self.properties = {k: ensure_neo4j_type(v) for k, v in properties.items()}
-
-    def __getitem__(self, key: str) -> PythonType:
-        return ensure_python_type(self.properties[key])
-
-    def __setitem__(self, key: str, value: Union[Neo4jType, PythonType]) -> None:
-        self.properties[key] = ensure_neo4j_type(value)
-
-    def to_python_props(self) -> dict[str, PythonType]:
-        """
-        Convert properties to Python basic types(dict).
-        """
-        result: dict[str, PythonType] = {}
-        for k, v in self.properties.items():
-            result[k] = convert_neo4j_to_python(v)
-        if self.globalId:
-            result['globalId'] = self.globalId
-        return result
-
-    def to_cypher_props(self) -> LiteralString:
-        pairs: list[LiteralString] = []
-        for k, v in self.properties.items():
-            if isinstance(v, Neo4jList):
-                if not v.is_storable_as_property():
-                    raise ValueError(f"Property '{k}' contains a non-storable ListValue.")
-            pairs.append(f'{escape_identifier(k)}: {v.to_cypher()}')
-        if not pairs:
-            return '{}'
-        return '{ ' + ', '.join(pairs) + ' }'
-
-    @abstractmethod
-    def to_cypher(self) -> LiteralString:
-        ...
-
-    @classmethod
-    @abstractmethod
-    def from_neo4j(cls, entity: neo4j.graph.Entity) -> Self:
-        ...
-
-    @property
-    def id(self) -> str:
-        return f'{self.globalId or self.__class__.__name__ + '_' + str(id(self))}'
-
-    def __repr__(self) -> LiteralString:
-        return self.to_cypher()
-
-    def __str__(self) -> str:
-        return f'{self.__class__.__name__}({self.to_python_props()})'
-
-class Node(Entity):
-    labels: frozenset[str]
-
-    def __init__(self, properties: Mapping[str, Union[Neo4jType, PythonType]], labels: Optional[set[str] | frozenset[str]]=None, globalId: Optional[str]=None) -> None:
-        super().__init__(properties=properties, globalId=globalId)
-        self.labels = frozenset(labels or ())
-
-    @classmethod
-    def from_neo4j(cls, entity: neo4j.graph.Node) -> Self:
-        properties: dict[str, Any] = entity._properties
-        globalId = properties.get('globalId')
-        if globalId:
-            globalId = str(globalId)
-        else:
-            globalId = None
-        return cls(properties=properties, labels=entity.labels, globalId=globalId)
-
-    @override
-    def __str__(self) -> str:
-        return f'{self.__class__.__name__}[{self.labelstring}]({self.to_python_props()})'
-
-    def to_cypher(self) -> LiteralString:
-        props: LiteralString = self.to_cypher_props()
-        return f'({escape_identifier(self.id)}: {self.safe_labelstring} {props})'
-
-    @property
-    def labelstring(self) -> str:
-        labels: str = ':'.join(sorted(self.labels))
-        return labels or 'Node'
-
-    @property
-    def safe_labelstring(self) -> LiteralString:
-        labels: LiteralString = ':'.join((escape_identifier(label) for label in sorted(self.labels)))
-        return labels or 'Node'
-
-class Relationship(Entity):
-    rel_type: str
-    start_node: Node
-    end_node: Node
-
-    def __init__(self, properties: Mapping[str, Union[Neo4jType, PythonType]], rel_type: str, start_node: Node, end_node: Node, globalId: Optional[str]=None) -> None:
-        super().__init__(properties=properties, globalId=globalId)
-        self.rel_type = rel_type
-        self.start_node = start_node
-        self.end_node = end_node
-
-    @override
-    def __str__(self) -> str:
-        return f'{self.__class__.__name__}[{self.rel_type}]({self.to_python_props()})'
-
-    @classmethod
-    def from_neo4j(cls, entity: neo4j.graph.Relationship) -> Self:
-        if entity.start_node is None or entity.end_node is None:
-            raise ValueError('Relationship must have both a start and end node.')
-        properties: dict[str, Any] = entity._properties
-        globalId = properties.get('globalId')
-        if globalId:
-            globalId = str(globalId)
-        else:
-            globalId = None
-        return cls(properties=properties, rel_type=entity.type, start_node=Node.from_neo4j(entity.start_node), end_node=Node.from_neo4j(entity.end_node), globalId=globalId)
-
-    def to_cypher(self) -> LiteralString:
-        start_node: LiteralString = self.start_node.to_cypher()
-        id: LiteralString = escape_identifier(self.id)
-        rel_type: LiteralString = escape_identifier(self.rel_type)
-        props_str: LiteralString = self.to_cypher_props()
-        end_node: LiteralString = self.end_node.to_cypher()
-        return f'{start_node}-[{id}: {rel_type} {props_str}]->{end_node}'
-
-class Graph:
-
-    def __init__(self, nodes: Optional[dict[str, Node]]=None, relationships: Optional[dict[str, Relationship]]=None) -> None:
-        self.nodes: dict[str, Node] = nodes or {}
-        self.relationships: dict[str, Relationship] = relationships or {}
-
-    def __repr__(self) -> str:
-        if self.nodes:
-            n = '\n' + ',\n'.join(('        ' + str(n) for n in self.nodes.values())) + '\n    '
-        else:
-            n = ''
-        if self.relationships:
-            r = '\n' + ',\n'.join(('        ' + str(r) for r in self.relationships.values())) + '\n    '
-        else:
-            r = ''
-        return f'{self.__class__.__name__}(\n    nodes=[{n}],\n    relationships=[{r}],\n)'
-
-    @classmethod
-    def from_neo4j(cls, graph: neo4j.graph.Graph) -> Graph:
-        result = cls()
-        for entity in graph.nodes:
-            result.add_node(Node.from_neo4j(entity))
-        for entity in graph.relationships:
-            result.add_relationship(Relationship.from_neo4j(entity))
-        return result
-
-    def add_node(self, node: Node) -> None:
-        self.nodes[node.id] = node
-
-    def add_relationship(self, relationship: Relationship) -> None:
-        self.relationships[relationship.id] = relationship
-
-    def remove_node(self, node_id: str) -> None:
-        to_remove: list[str] = []
-        for rid, rel in self.relationships.items():
-            if rel.start_node.id == node_id or rel.end_node.id == node_id:
-                to_remove.append(rid)
-        for rid in to_remove:
-            self.remove_relationship(rid)
-        self.nodes.pop(node_id, None)
-
-    def remove_relationship(self, rel_id: str) -> None:
-        self.relationships.pop(rel_id, None)
-
-    def get_graph_schema(self) -> GraphSchema:
-        """
-        현재 in-memory Graph에 존재하는 Node/Relationship 정보를 기반으로
-        간단한 스키마 정보를 구성해 GraphSchema(dict) 형태로 반환한다.
-        """
-        node_props_dict: defaultdict[str, set[tuple[str, str]]] = defaultdict(set)
-        rel_props_dict: defaultdict[str, set] = defaultdict(set)
-        relationships_list: list[Triplet] = []
-        for node in self.nodes.values():
-            labels: str = node.labelstring
-            for prop_key, neo4j_val in node.properties.items():
-                prop_type_name: str = get_neo4j_property_type_name(neo4j_val)
-                node_props_dict[labels].add((prop_key, prop_type_name))
-        for rel in self.relationships.values():
-            for prop_key, neo4j_val in rel.properties.items():
-                prop_type_name: str = get_neo4j_property_type_name(neo4j_val)
-                rel_props_dict[rel.rel_type].add((prop_key, prop_type_name))
-            relationships_list.append({'start': rel.start_node.safe_labelstring, 'type': rel.rel_type, 'end': rel.end_node.safe_labelstring})
-        node_props: dict[str, list[Property]] = {}
-        for label, propset in node_props_dict.items():
-            node_props[label] = [{'property': prop_name, 'type': prop_type} for prop_name, prop_type in sorted(propset)]
-        rel_props: dict[str, list[Property]] = {}
-        for rtype, propset in rel_props_dict.items():
-            rel_props[rtype] = [{'property': prop_name, 'type': prop_type} for prop_name, prop_type in sorted(propset)]
-        graph_schema: GraphSchema = {'node_props': node_props, 'rel_props': rel_props, 'relationships': relationships_list, 'metadata': {'constraint': [], 'index': []}}
-        return graph_schema
-
-    def get_formatted_graph_schema(self) -> str:
-        """
-        현재 그래프의 스키마 정보를 사람이 읽기 좋은 형식의 문자열로 반환한다.
-        (Neo4jConnection.format_graph_schema()와 유사 형식)
-        """
-        schema = self.get_graph_schema()
-        lines: list[str] = []
-        lines.append('### Node properties')
-        node_props = schema.get('node_props', {})
-        for label, props in node_props.items():
-            lines.append(f'- {label}')
-            for p in props:
-                lines.append(f'  * {p['property']}: {p['type']}')
-        lines.append('')
-        lines.append('### Relationship properties')
-        rel_props = schema.get('rel_props', {})
-        for rtype, rprops in rel_props.items():
-            lines.append(f'- {rtype}')
-            for rp in rprops:
-                lines.append(f'  * {rp['property']}: {rp['type']}')
-        lines.append('')
-        lines.append('### Relationships')
-        rels = schema.get('relationships', [])
-        for rel_dict in rels:
-            lines.append(f'- (:{rel_dict['start']})-[:{rel_dict['type']}]->(:{rel_dict['end']})')
-        return '\n'.join(lines)
-if __name__ == '__main__':
-    print(Node(properties={}).to_cypher())
-    graph = Graph()
-    node1 = Node({'name': 'Alice'}, {'Person'}, 'alice')
-    node2 = Node({'name': 'Bob'}, {'Person'}, 'bob')
-    rel = Relationship({'since': 1999}, 'KNOWS', node1, node2, 'alice_knows_bob')
-    graph.add_node(node1)
-    graph.add_node(node2)
-    graph.add_relationship(rel)
-    print(node1)
-    print(node2)
-    print(rel)
-    print(graph.nodes)
-    print(graph.relationships)
-    graph.remove_node('alice')
-    print(graph.nodes)
-    print(graph.relationships)
-    graph.remove_relationship('alice_knows_bob')
-    print(graph.relationships)
-
-==========
-
-### neo4j_extension/graph/__init__.py
-from .pydantic_action import AddNodeAction, AddPropertyAction, AddRelationshipAction, GraphAction, RemoveNodeAction, RemovePropertyAction, RemoveRelationshipAction, UpdateNodeLabelsAction, UpdatePropertyAction, apply_actions, generate_new_id, sort_patch_actions
-from .pydantic_model import EntityModel, GraphModel, NodeModel, OrphanConnectionProposal, OrphanNodesFoundException, PropertyModel, PropertyType, RelationshipModel
-from .structure import Entity, Graph, Node, Relationship
-__all__ = ['AddNodeAction', 'AddPropertyAction', 'AddRelationshipAction', 'apply_actions', 'Entity', 'EntityModel', 'generate_new_id', 'Graph', 'GraphAction', 'GraphModel', 'Node', 'NodeModel', 'OrphanConnectionProposal', 'OrphanNodesFoundException', 'PropertyModel', 'PropertyType', 'Relationship', 'RemoveNodeAction', 'RemovePropertyAction', 'RemoveRelationshipAction', 'sort_patch_actions', 'UpdateNodeLabelsAction', 'UpdatePropertyAction', 'RelationshipModel']
-
-==========
-
-### neo4j_extension/graph/pydantic_action.py
-from typing import Literal, Self, Union
-from pydantic import BaseModel, model_validator
-from .pydantic_model import GraphModel, NodeModel, PropertyModel, PropertyType, RelationshipModel
-
-class AddNodeAction(BaseModel):
-    type: Literal['AddNode']
-    nodes: list[NodeModel]
-
-    @model_validator(mode='before')
-    def default_type(cls, values: Self | dict):
-        if isinstance(values, dict):
-            values['type'] = 'AddNode'
-        else:
-            values.type = 'AddNode'
-        return values
-
-class RemoveNodeAction(BaseModel):
-    type: Literal['RemoveNode']
-    nodeIds: list[int]
-
-    @model_validator(mode='before')
-    def default_type(cls, values: Self | dict):
-        if isinstance(values, dict):
-            values['type'] = 'RemoveNode'
-        else:
-            values.type = 'RemoveNode'
-        return values
-
-class AddRelationshipAction(BaseModel):
-    type: Literal['AddRelationship']
-    relationships: list[RelationshipModel]
-
-    @model_validator(mode='before')
-    def default_type(cls, values: Self | dict):
-        if isinstance(values, dict):
-            values['type'] = 'AddRelationship'
-        else:
-            values.type = 'AddRelationship'
-        return values
-
-class RemoveRelationshipAction(BaseModel):
-    type: Literal['RemoveRelationship']
-    relationshipIds: list[int]
-
-    @model_validator(mode='before')
-    def default_type(cls, values: Self | dict):
-        if isinstance(values, dict):
-            values['type'] = 'RemoveRelationship'
-        else:
-            values.type = 'RemoveRelationship'
-        return values
-
-class AddPropertyAction(BaseModel):
-    type: Literal['AddProperty']
-    entityType: Literal['node', 'relationship']
-    entityId: int
-    property: PropertyModel
-
-    @model_validator(mode='before')
-    def default_type(cls, values: Self | dict):
-        if isinstance(values, dict):
-            values['type'] = 'AddProperty'
-        else:
-            values.type = 'AddProperty'
-        return values
-
-    def apply_add_property(self, base_nodes: dict[int, NodeModel], added_nodes: dict[int, NodeModel], base_rels: dict[int, RelationshipModel], added_rels: dict[int, RelationshipModel], node_id_remap: dict[int, int], rel_id_remap: dict[int, int], removed_node_ids: set[int], removed_rel_ids: set[int]) -> bool:
-        """Returns True if successfully applied, or False if skipped."""
-        eid = self.entityId
-        if self.entityType == 'node':
-            if eid in node_id_remap:
-                eid = node_id_remap[eid]
-            if eid in removed_node_ids:
-                print(f'WARNING: AddPropertyAction on removed node #{eid}. Skip.')
-                return False
-            target = added_nodes.get(eid) or base_nodes.get(eid)
-            if not target:
-                print(f'WARNING: AddPropertyAction: node #{eid} not found. Skip.')
-                return False
-            if any((p.k == self.property.k for p in target.properties)):
-                print(f'WARNING: property {self.property.k} already exists. Skip.')
-                return False
-            target.properties.append(self.property)
-            return True
-        elif self.entityType == 'relationship':
-            if eid in rel_id_remap:
-                eid = rel_id_remap[eid]
-            if eid in removed_rel_ids:
-                print(f'WARNING: AddPropertyAction on removed relationship #{eid}. Skip.')
-                return False
-            target = added_rels.get(eid) or base_rels.get(eid)
-            if not target:
-                print(f'WARNING: AddPropertyAction: relationship #{eid} not found. Skip.')
-                return False
-            if any((p.k == self.property.k for p in target.properties)):
-                print(f'WARNING: property {self.property.k} already exists. Skip.')
-                return False
-            target.properties.append(self.property)
-            return True
-        else:
-            print(f'WARNING: Invalid entityType {self.entityType}. Skip.')
-            return False
-
-class UpdatePropertyAction(BaseModel):
-    type: Literal['UpdateProperty']
-    entityType: Literal['node', 'relationship']
-    entityId: int
-    propertyKey: str
-    newValue: PropertyType
-
-    @model_validator(mode='before')
-    def default_type(cls, values: Self | dict):
-        if isinstance(values, dict):
-            values['type'] = 'UpdateProperty'
-        else:
-            values.type = 'UpdateProperty'
-        return values
-
-    def apply_update_property(self, base_nodes: dict[int, NodeModel], added_nodes: dict[int, NodeModel], base_rels: dict[int, RelationshipModel], added_rels: dict[int, RelationshipModel], node_id_remap: dict[int, int], rel_id_remap: dict[int, int], removed_node_ids: set[int], removed_rel_ids: set[int]) -> bool:
-        eid = self.entityId
-        if self.entityType == 'node':
-            if eid in node_id_remap:
-                eid = node_id_remap[eid]
-            if eid in removed_node_ids:
-                print(f'WARNING: UpdatePropertyAction on removed node #{eid}. Skip.')
-                return False
-            target = added_nodes.get(eid) or base_nodes.get(eid)
-            if not target:
-                print(f'WARNING: node #{eid} not found for update. Skip.')
-                return False
-            for prop in target.properties:
-                if prop.k == self.propertyKey:
-                    prop.v = self.newValue
-                    return True
-            print(f'WARNING: node #{eid} has no property {self.propertyKey}. Skip.')
-            return False
-        elif self.entityType == 'relationship':
-            if eid in rel_id_remap:
-                eid = rel_id_remap[eid]
-            if eid in removed_rel_ids:
-                print(f'WARNING: UpdatePropertyAction on removed relationship #{eid}. Skip.')
-                return False
-            target = added_rels.get(eid) or base_rels.get(eid)
-            if not target:
-                print(f'WARNING: relationship #{eid} not found for update. Skip.')
-                return False
-            for prop in target.properties:
-                if prop.k == self.propertyKey:
-                    prop.v = self.newValue
-                    return True
-            print(f'WARNING: relationship #{eid} has no property {self.propertyKey}. Skip.')
-            return False
-        else:
-            print(f'WARNING: invalid entityType {self.entityType}. Skip.')
-            return False
-
-class RemovePropertyAction(BaseModel):
-    type: Literal['RemoveProperty']
-    entityType: Literal['node', 'relationship']
-    entityId: int
-    propertyKey: str
-
-    @model_validator(mode='before')
-    def default_type(cls, values: Self | dict):
-        if isinstance(values, dict):
-            values['type'] = 'RemoveProperty'
-        else:
-            values.type = 'RemoveProperty'
-        return values
-
-    def apply_remove_property(self, base_nodes: dict[int, NodeModel], added_nodes: dict[int, NodeModel], base_rels: dict[int, RelationshipModel], added_rels: dict[int, RelationshipModel], node_id_remap: dict[int, int], rel_id_remap: dict[int, int], removed_node_ids: set[int], removed_rel_ids: set[int]) -> bool:
-        eid = self.entityId
-        if self.entityType == 'node':
-            if eid in node_id_remap:
-                eid = node_id_remap[eid]
-            if eid in removed_node_ids:
-                print(f'WARNING: RemovePropertyAction on removed node #{eid}. Skip.')
-                return False
-            target = added_nodes.get(eid) or base_nodes.get(eid)
-            if not target:
-                print(f'WARNING: node #{eid} not found. Skip.')
-                return False
-            before_len = len(target.properties)
-            target.properties = [p for p in target.properties if p.k != self.propertyKey]
-            after_len = len(target.properties)
-            if before_len == after_len:
-                print(f'WARNING: node #{eid} has no property {self.propertyKey}. Skip.')
-                return False
-            return True
-        elif self.entityType == 'relationship':
-            if eid in rel_id_remap:
-                eid = rel_id_remap[eid]
-            if eid in removed_rel_ids:
-                print(f'WARNING: RemovePropertyAction on removed relationship #{eid}. Skip.')
-                return False
-            target = added_rels.get(eid) or base_rels.get(eid)
-            if not target:
-                print(f'WARNING: relationship #{eid} not found. Skip.')
-                return False
-            before_len = len(target.properties)
-            target.properties = [p for p in target.properties if p.k != self.propertyKey]
-            after_len = len(target.properties)
-            if before_len == after_len:
-                print(f'WARNING: relationship #{eid} has no property {self.propertyKey}. Skip.')
-                return False
-            return True
-        else:
-            print(f'WARNING: invalid entityType {self.entityType}. Skip.')
-            return False
-
-class UpdateNodeLabelsAction(BaseModel):
-    type: Literal['UpdateNodeLabels']
-    nodeId: int
-    newLabels: list[str]
-
-    @model_validator(mode='before')
-    def default_type(cls, values: Self | dict):
-        if isinstance(values, dict):
-            values['type'] = 'UpdateNodeLabels'
-        else:
-            values.type = 'UpdateNodeLabels'
-        return values
-GraphAction = Union[AddNodeAction, RemoveNodeAction, AddRelationshipAction, RemoveRelationshipAction, AddPropertyAction, UpdatePropertyAction, RemovePropertyAction, UpdateNodeLabelsAction]
-
-def apply_actions(base_graph: GraphModel, actions: list[GraphAction]) -> GraphModel:
-    """
-    1) Re-map any 'AddNode'/'AddRelationship' IDs if they conflict with existing
-    2) Sort actions in a stable order (add -> remove -> updates)
-    3) Apply them in sequence
-    4) Merge duplicates
-    """
-    nodes = {n.uniqueId: n for n in base_graph.nodes}
-    relationships = {r.uniqueId: r for r in base_graph.relationships}
-    existing_node_ids = set(nodes.keys())
-    existing_rel_ids = set(relationships.keys())
-    newly_added_nodes: dict[int, NodeModel] = {}
-    newly_added_rels: dict[int, RelationshipModel] = {}
-    remapped_node_ids = {}
-    remapped_rel_ids = {}
-    removed_node_ids = set()
-    removed_rel_ids = set()
-    for action in actions:
-        if isinstance(action, AddNodeAction):
-            for node in action.nodes:
-                old_id = node.uniqueId
-                if old_id in existing_node_ids or old_id in remapped_node_ids:
-                    new_id = generate_new_id(existing_node_ids, existing_rel_ids)
-                    remapped_node_ids[old_id] = new_id
-                    existing_node_ids.add(new_id)
-                else:
-                    existing_node_ids.add(old_id)
-        elif isinstance(action, AddRelationshipAction):
-            for rel in action.relationships:
-                old_rid = rel.uniqueId
-                if old_rid in existing_rel_ids or old_rid in remapped_rel_ids:
-                    new_rid = generate_new_id(existing_node_ids, existing_rel_ids)
-                    remapped_rel_ids[old_rid] = new_rid
-                    existing_rel_ids.add(new_rid)
-                else:
-                    existing_rel_ids.add(old_rid)
-    sorted_actions: list[GraphAction] = sort_patch_actions(actions)
-    for action in sorted_actions:
-        if isinstance(action, AddNodeAction):
-            for node in action.nodes:
-                old_id = node.uniqueId
-                if old_id in remapped_node_ids:
-                    node.uniqueId = remapped_node_ids[old_id]
-                newly_added_nodes[node.uniqueId] = node
-        elif isinstance(action, AddRelationshipAction):
-            for rel in action.relationships:
-                old_rid = rel.uniqueId
-                if old_rid in remapped_rel_ids:
-                    rel.uniqueId = remapped_rel_ids[old_rid]
-                start_id = rel.startNode.uniqueId
-                if start_id in remapped_node_ids:
-                    start_id = remapped_node_ids[start_id]
-                    rel.startNode.uniqueId = start_id
-                end_id = rel.endNode.uniqueId
-                if end_id in remapped_node_ids:
-                    end_id = remapped_node_ids[end_id]
-                    rel.endNode.uniqueId = end_id
-                if start_id in removed_node_ids or (start_id not in nodes and start_id not in newly_added_nodes):
-                    print(f'WARNING: AddRelationship({rel.uniqueId}) start node {start_id} missing. Skip.')
-                    continue
-                if end_id in removed_node_ids or (end_id not in nodes and end_id not in newly_added_nodes):
-                    print(f'WARNING: AddRelationship({rel.uniqueId}) end node {end_id} missing. Skip.')
-                    continue
-                newly_added_rels[rel.uniqueId] = rel
-        elif isinstance(action, RemoveNodeAction):
-            for nid in action.nodeIds:
-                if nid in remapped_node_ids:
-                    nid = remapped_node_ids[nid]
-                if nid in newly_added_nodes:
-                    del newly_added_nodes[nid]
-                    removed_node_ids.add(nid)
-                elif nid in nodes:
-                    del nodes[nid]
-                    removed_node_ids.add(nid)
-                    for rid in list(relationships.keys()):
-                        rel = relationships[rid]
-                        if rel.startNode.uniqueId == nid or rel.endNode.uniqueId == nid:
-                            del relationships[rid]
-                            removed_rel_ids.add(rid)
-                    for rid in list(newly_added_rels.keys()):
-                        rel = newly_added_rels[rid]
-                        if rel.startNode.uniqueId == nid or rel.endNode.uniqueId == nid:
-                            del newly_added_rels[rid]
-                            removed_rel_ids.add(rid)
-                else:
-                    print(f'WARNING: RemoveNodeAction: node {nid} not found. Skip.')
-        elif isinstance(action, RemoveRelationshipAction):
-            for rid in action.relationshipIds:
-                if rid in remapped_rel_ids:
-                    rid = remapped_rel_ids[rid]
-                if rid in newly_added_rels:
-                    del newly_added_rels[rid]
-                    removed_rel_ids.add(rid)
-                elif rid in relationships:
-                    del relationships[rid]
-                    removed_rel_ids.add(rid)
-                else:
-                    print(f'WARNING: RemoveRelationshipAction: relationship {rid} not found. Skip.')
-        elif isinstance(action, UpdateNodeLabelsAction):
-            nid = action.nodeId
-            if nid in remapped_node_ids:
-                nid = remapped_node_ids[nid]
-            if nid in removed_node_ids:
-                print(f"WARNING: node {nid} was removed, can't update labels. Skip.")
-                continue
-            node_obj = newly_added_nodes.get(nid) or nodes.get(nid)
-            if not node_obj:
-                print(f'WARNING: UpdateNodeLabelsAction: node {nid} not found. Skip.')
-                continue
-            node_obj.labels = action.newLabels
-        elif isinstance(action, AddPropertyAction):
-            action.apply_add_property(base_nodes=nodes, added_nodes=newly_added_nodes, base_rels=relationships, added_rels=newly_added_rels, node_id_remap=remapped_node_ids, rel_id_remap=remapped_rel_ids, removed_node_ids=removed_node_ids, removed_rel_ids=removed_rel_ids)
-        elif isinstance(action, UpdatePropertyAction):
-            action.apply_update_property(base_nodes=nodes, added_nodes=newly_added_nodes, base_rels=relationships, added_rels=newly_added_rels, node_id_remap=remapped_node_ids, rel_id_remap=remapped_rel_ids, removed_node_ids=removed_node_ids, removed_rel_ids=removed_rel_ids)
-        elif isinstance(action, RemovePropertyAction):
-            action.apply_remove_property(base_nodes=nodes, added_nodes=newly_added_nodes, base_rels=relationships, added_rels=newly_added_rels, node_id_remap=remapped_node_ids, rel_id_remap=remapped_rel_ids, removed_node_ids=removed_node_ids, removed_rel_ids=removed_rel_ids)
-        else:
-            print(f'WARNING: Unknown action type {action.type} encountered. Skipped.')
-    nodes.update(newly_added_nodes)
-    relationships.update(newly_added_rels)
-    updated_graph = GraphModel(nodes=list(nodes.values()), relationships=list(relationships.values()))
-    updated_graph.resolve_merge_conflicts()
-    return updated_graph
-
-def generate_new_id(existing_node_ids: set[int], existing_rel_ids: set[int]) -> int:
-    used = existing_node_ids.union(existing_rel_ids)
-    candidate = 1
-    while candidate in used:
-        candidate += 1
-    return candidate
-
-def sort_patch_actions(actions: list[GraphAction]) -> list[GraphAction]:
-    """
-    Sort the actions in a stable, logical order to avoid referencing missing entities.
-    Priority is:
-      1) AddNode
-      2) AddRelationship
-      3) RemoveNode
-      4) RemoveRelationship
-      5) UpdateNodeLabels
-      6) AddProperty
-      7) UpdateProperty
-      8) RemoveProperty
-    """
-    PRIORITY = {'AddNode': 1, 'AddRelationship': 2, 'RemoveNode': 3, 'RemoveRelationship': 4, 'UpdateNodeLabels': 5, 'AddProperty': 6, 'UpdateProperty': 7, 'RemoveProperty': 8}
-
-    def action_priority(a: GraphAction) -> int:
-        return PRIORITY[a.type]
-    return sorted(actions, key=action_priority)
-
-==========
-
-### neo4j_extension/bolt/connection.py
+### neo4j_extension\bolt\connection.py
 import logging
 from dataclasses import dataclass, field
 from functools import wraps
@@ -2083,50 +958,863 @@ class Neo4jConnection:
 
 ==========
 
-### neo4j_extension/bolt/__init__.py
+### neo4j_extension\bolt\__init__.py
 from .connection import AsyncDriverKwargs, DriverKwargs, Neo4jConnection, SessionKwargs, with_async_session, with_session
 __all__ = ['Neo4jConnection', 'with_session', 'with_async_session', 'DriverKwargs', 'AsyncDriverKwargs', 'SessionKwargs']
 
 ==========
 
-### neo4j_extension/types/_abc.py
+### neo4j_extension\graph\pydantic_action.py
+from copy import deepcopy
+import logging
+from collections import defaultdict
+from typing import Generic, Literal, Optional, Self, TypeAlias, TypeVar, Union, get_args
+from pydantic import BaseModel, model_validator
+from .pydantic_model import GraphModel, NodeModel, PropertyModel, PropertyType, RelationshipModel
+logger = logging.getLogger(__name__)
+ActionTypes: TypeAlias = Literal['AddNode', 'RemoveNode', 'AddRelationship', 'RemoveRelationship', 'AddProperty', 'UpdateProperty', 'RemoveProperty', 'UpdateNodeLabels', 'UpdateRelationshipType']
+GraphAction = Union['AddNodeAction', 'RemoveNodeAction', 'AddRelationshipAction', 'RemoveRelationshipAction', 'AddPropertyAction', 'UpdatePropertyAction', 'RemovePropertyAction', 'UpdateNodeLabelsAction']
+A = TypeVar('A', bound=ActionTypes)
+
+class GraphActionBase(BaseModel, Generic[A]):
+    type: A
+
+    @model_validator(mode='before')
+    def default_type(cls, values: Union[Self, dict]):
+        try:
+            type, = get_args(cls.__pydantic_fields__['type'].annotation)
+            if isinstance(values, dict):
+                values['type'] = type
+            if isinstance(values, GraphActionBase):
+                values.type = type
+            return values
+        except Exception as e:
+            logger.error(f'[{cls.__class__}] Failed to set default type: {e}')
+
+class AddNodeAction(GraphActionBase[Literal['AddNode']]):
+    nodes: list[NodeModel]
+
+class AddRelationshipAction(GraphActionBase[Literal['AddRelationship']]):
+    relationships: list[RelationshipModel]
+
+class AddPropertyAction(GraphActionBase[Literal['AddProperty']]):
+    entityId: int
+    property: PropertyModel
+
+class RemoveNodeAction(GraphActionBase[Literal['RemoveNode']]):
+    nodeIds: list[int]
+
+class RemoveRelationshipAction(GraphActionBase[Literal['RemoveRelationship']]):
+    relationshipIds: list[int]
+
+class RemovePropertyAction(GraphActionBase[Literal['RemoveProperty']]):
+    entityId: int
+    propertyKey: str
+
+class UpdateNodeLabelsAction(GraphActionBase[Literal['UpdateNodeLabels']]):
+    nodeId: int
+    newLabels: list[str]
+
+class UpdateRelationshipTypeAction(GraphActionBase[Literal['UpdateRelationshipType']]):
+    relationshipId: int
+    newType: str
+
+class UpdatePropertyAction(GraphActionBase[Literal['UpdateProperty']]):
+    entityId: int
+    propertyKey: str
+    newValue: PropertyType
+
+def apply_actions(graph: GraphModel, actions: list[GraphAction]) -> GraphModel:
+    graph_nodes: dict[int, NodeModel] = {node.uniqueId: deepcopy(node) for node in graph.nodes}
+    graph_relationships: dict[int, RelationshipModel] = {rel.uniqueId: deepcopy(rel) for rel in graph.relationships}
+    for action in actions:
+        if isinstance(action, AddNodeAction):
+            _ns: defaultdict[int, list[NodeModel]] = defaultdict(list)
+            for _n in action.nodes:
+                _existing_node: Optional[NodeModel] = graph_nodes.get(_n.uniqueId)
+                if _existing_node is not None:
+                    _ns[_n.uniqueId].append(_existing_node)
+                _ns[_n.uniqueId].append(_n)
+            for _nid, _rl in _ns.items():
+                if not _rl:
+                    continue
+                if len(_rl) > 1:
+                    logger.warning(f'AddNodeAction: Node {_nid} added multiple times. Only the last one will be kept.')
+                graph_nodes[_nid] = NodeModel.merge_with_id(entities=_rl, uniqueId=_nid)
+        elif isinstance(action, AddRelationshipAction):
+            _rs: defaultdict[int, list[RelationshipModel]] = defaultdict(list)
+            for _r in action.relationships:
+                _existing_rel: Optional[RelationshipModel] = graph_relationships.get(_r.uniqueId)
+                if _existing_rel is not None:
+                    _rs[_r.uniqueId].append(_existing_rel)
+                _rs[_r.uniqueId].append(_r)
+            for _rid, _rl in _rs.items():
+                if not _rl:
+                    continue
+                if len(_rl) > 1:
+                    logger.warning(f'AddRelationshipAction: Relationship {_rid} added multiple times. Only the last one will be kept.')
+                graph_relationships[_rid] = RelationshipModel.merge_with_id(entities=_rl, uniqueId=_rid)
+        elif isinstance(action, AddPropertyAction):
+            _eid = action.entityId
+            _p = action.property
+            if _eid in graph_nodes:
+                _n = graph_nodes[_eid]
+                if _eid in graph_relationships:
+                    logger.warning(f'AddPropertyAction: Both node {_eid} and relationship {_eid} found. Node will be used.')
+                _existing_p = next((p for p in _n.properties if p.k == _p.k), None)
+                if _existing_p is not None:
+                    logger.warning(f'AddPropertyAction: Property {_existing_p.k} already exists in node {_eid}. Overwriting.')
+                    _n.properties.remove(_existing_p)
+                    continue
+                _n.properties.append(_p)
+            elif _eid in graph_relationships:
+                _r = graph_relationships[_eid]
+                _existing_p = next((p for p in _r.properties if p.k == _p.k), None)
+                if _existing_p is not None:
+                    logger.warning(f'AddPropertyAction: Property {_existing_p.k} already exists in relationship {_eid}. Overwriting.')
+                    _r.properties.remove(_existing_p)
+                    continue
+                _r.properties.append(_p)
+            else:
+                logger.warning(f'AddPropertyAction: Entity {_eid} not found. Skip.')
+        elif isinstance(action, RemoveNodeAction):
+            for _nid in action.nodeIds:
+                if _nid in graph_nodes:
+                    del graph_nodes[_nid]
+                else:
+                    logger.warning(f'RemoveNodeAction: node {_nid} not found. Skip.')
+        elif isinstance(action, RemoveRelationshipAction):
+            for _rid in action.relationshipIds:
+                if _rid in graph_relationships:
+                    del graph_relationships[_rid]
+                else:
+                    logger.warning(f'RemoveRelationshipAction: relationship {_rid} not found. Skip.')
+        elif isinstance(action, RemovePropertyAction):
+            _eid = action.entityId
+            _pk = action.propertyKey
+            if _eid in graph_nodes:
+                _n = graph_nodes[_eid]
+                if _eid in graph_relationships:
+                    logger.warning(f'RemovePropertyAction: Both node {_eid} and relationship {_eid} found. Node will be used.')
+                _existing_p = next((p for p in _n.properties if p.k == _pk), None)
+                if _existing_p is not None:
+                    _n.properties.remove(_existing_p)
+                else:
+                    logger.warning(f'RemovePropertyAction: Property {_pk} not found in node {_eid}. Skip.')
+            elif _eid in graph_relationships:
+                _r = graph_relationships[_eid]
+                _existing_p = next((p for p in _r.properties if p.k == _pk), None)
+                if _existing_p is not None:
+                    _r.properties.remove(_existing_p)
+                else:
+                    logger.warning(f'RemovePropertyAction: Property {_pk} not found in relationship {_eid}. Skip.')
+            else:
+                logger.warning(f'RemovePropertyAction: Entity {_eid} not found. Skip.')
+        elif isinstance(action, UpdateNodeLabelsAction):
+            _nid = action.nodeId
+            _n = graph_nodes.get(_nid)
+            if _n is None:
+                logger.warning(f'UpdateNodeLabelsAction: node {_nid} not found. Skip.')
+                continue
+            _n.labels = action.newLabels
+        elif isinstance(action, UpdateRelationshipTypeAction):
+            _rid = action.relationshipId
+            _r = graph_relationships.get(_rid)
+            if _r is None:
+                logger.warning(f'UpdateRelationshipTypeAction: relationship {_rid} not found. Skip.')
+                continue
+            _r.type = action.newType
+        elif isinstance(action, UpdatePropertyAction):
+            _eid = action.entityId
+            _pk = action.propertyKey
+            _nv = action.newValue
+            if _eid in graph_nodes:
+                _n = graph_nodes[_eid]
+                if _eid in graph_relationships:
+                    logger.warning(f'UpdatePropertyAction: Both node {_eid} and relationship {_eid} found. Node will be used.')
+                _existing_p = next((p for p in _n.properties if p.k == _pk), None)
+                if _existing_p is not None:
+                    _existing_p.v = _nv
+                else:
+                    logger.warning(f'UpdatePropertyAction: Property {_pk} not found in node {_eid}. Creating new property.')
+                    _n.properties.append(PropertyModel(k=_pk, v=_nv))
+            elif _eid in graph_relationships:
+                _r = graph_relationships[_eid]
+                _existing_p = next((p for p in _r.properties if p.k == _pk), None)
+                if _existing_p is not None:
+                    _existing_p.v = _nv
+                else:
+                    logger.warning(f'UpdatePropertyAction: Property {_pk} not found in relationship {_eid}. Creating new property.')
+                    _r.properties.append(PropertyModel(k=_pk, v=_nv))
+            else:
+                logger.warning(f'UpdatePropertyAction: Entity {_eid} not found. Skip.')
+    return GraphModel(nodes=list(graph_nodes.values()), relationships=list(graph_relationships.values()))
+
+==========
+
+### neo4j_extension\graph\pydantic_model.py
 from __future__ import annotations
 from abc import ABC, abstractmethod
-from typing import Generic, LiteralString, TypeVar
-T = TypeVar('T')
+from collections import defaultdict
+from copy import deepcopy
+from typing import Optional, Sequence, Type, TypeVar, cast
+from uuid import uuid4
+import neo4j
+from pydantic import BaseModel, Field
+from neo4j_extension.utils import generate_new_id
+from ..types._utils import PythonType, ensure_python_type
+from .structure import Graph, Node, Relationship
+E = TypeVar('E', bound='EntityModel')
+type PropertyType = int | float | str | bool | None | list[PropertyType]
 
-class Neo4jType(ABC, Generic[T]):
+class PropertyModel(BaseModel):
     """
-    Base class for Python representations of specific types
-    that can be stored in or returned from Neo4j via Neo4j.
+    Represents a single key-value property for a node or relationship.
     """
-    value: T
+    k: str
+    v: PropertyType
+
+class EntityModel(BaseModel, ABC):
+    """
+    Common fields for nodes and relationships.
+    """
+    properties: list[PropertyModel] = Field(default_factory=list, description='MUST include ALL key-value properties for this entity from the document.')
+    uniqueId: int = Field(description='A unique ID for the entity.')
+
+    @abstractmethod
+    def to_neo4j(self, *args, **kwargs) -> neo4j.Entity:
+        ...
+
+    @property
+    def python_props(self) -> dict[str, PythonType]:
+        return {prop.k: ensure_python_type(cast(PythonType, prop.v)) for prop in self.properties}
+
+    @property
+    def json_props(self) -> dict[str, PropertyType]:
+        return {prop.k: prop.v for prop in self.properties}
+
+    @abstractmethod
+    def __add__(self: E, other: E) -> E:
+        ...
+
+    @classmethod
+    def merge_properties(cls: Type[E], entities: Sequence[E]) -> E:
+        if not entities:
+            raise ValueError('No entities to merge.')
+        entity: EntityModel = deepcopy(entities[0])
+        props: dict[str, PropertyModel] = {p.k: p for e in entities for p in e.properties}
+        entity.properties.clear()
+        entity.properties.extend(props.values())
+        return entity
+
+    @classmethod
+    def merge_with_id(cls: Type[E], entities: Sequence[E], uniqueId: int) -> E:
+        if not entities:
+            raise ValueError('No entities to merge.')
+        e = entities[0]
+        for entity in entities[1:]:
+            e += entity
+        e.uniqueId = uniqueId
+        return e
+
+class NodeModel(EntityModel):
+    """
+    A single node in the graph.
+    """
+    labels: list[str] = Field(description='Labels that categorize this node (e.g., ["Animal"], ["Dog"], ["Animal", "Dog"]).')
+
+    def to_neo4j(self, prefix: str) -> Node:
+        return Node(properties=self.python_props, labels=set(self.labels), globalId=f'{prefix}#{self.uniqueId}')
+
+    @property
+    def signature(self) -> str:
+        labels_key: str = '_'.join(sorted(self.labels))
+        name_val = str(self.json_props.get('name', ''))
+        return f'{labels_key}::{name_val}'
+
+    def __add__(self, other: NodeModel) -> NodeModel:
+        merged = NodeModel.merge_properties([self, other])
+        merged.labels = list(set(self.labels + other.labels))
+        return merged
+
+    def orphan_find_original_node_index(self, nodes: list[NodeModel]) -> Optional[int]:
+        """
+        Given a candidate node, find its original index in 'nodes' by matching uniqueId.
+        Return None if not found.
+        """
+        for i, n in enumerate(nodes):
+            if n.uniqueId == self.uniqueId:
+                return i
+        else:
+            return None
+
+    def orphan_find_by_property_similarity(self, candidates: list[NodeModel]) -> Optional[NodeModel]:
+        if not candidates:
+            return None
+        PROPERTY_WEIGHTS = {'name': 3.0, 'id': 2.5, 'identifier': 2.5, 'title': 2.0, 'type': 1.5}
+
+        def similarity(a: PropertyType, b: PropertyType) -> float:
+            if a is None or b is None:
+                return 0.0
+            if isinstance(a, str) and isinstance(b, str):
+                a_s, b_s = (a.lower().strip(), b.lower().strip())
+                if a_s == b_s:
+                    return 1.0
+                max_len = max(len(a_s), len(b_s))
+                return 1.0 - abs(len(a_s) - len(b_s)) / max_len
+            return 1.0 if a == b else 0.0
+        orphan_props = self.json_props
+        scores = []
+        for candidate in candidates:
+            candidate_props = candidate.json_props
+            total_score = 0.0
+            for key, weight in PROPERTY_WEIGHTS.items():
+                ov = orphan_props.get(key)
+                cv = candidate_props.get(key)
+                if ov is not None and cv is not None:
+                    total_score += weight * similarity(ov, cv)
+            scores.append((total_score, candidate))
+        max_score = max((s for s, _ in scores), default=0.0)
+        top_candidates = [c for s, c in scores if s == max_score]
+        return top_candidates[0] if top_candidates else None
+
+    def orphan_find_by_label_match(self, candidates: list[NodeModel]) -> Optional[NodeModel]:
+        if not candidates:
+            return None
+        label_scores = []
+        orphan_labels = set(self.labels)
+        for candidate in candidates:
+            candidate_labels = set(candidate.labels)
+            score = len(orphan_labels & candidate_labels)
+            label_scores.append((score, candidate))
+        if not label_scores:
+            return None
+        max_score = max((s for s, _ in label_scores))
+        top_candidates = [c for s, c in label_scores if s == max_score]
+        if len(top_candidates) > 1:
+            return self.orphan_find_by_property_similarity(top_candidates)
+        return top_candidates[0] if top_candidates else None
+
+class RelationshipModel(EntityModel):
+    """
+    A single relationship (edge) in the graph.
+    """
+    type: str = Field(description='The type of this relationship.')
+    startNode: NodeModel = Field(description='The start node for this relationship.')
+    endNode: NodeModel = Field(description='The end node for this relationship.')
+
+    def to_neo4j(self, node_map: dict[str, Node], prefix: str) -> Relationship:
+        start_neo4j_node = node_map[f'{prefix}#{self.startNode.uniqueId}']
+        end_neo4j_node = node_map[f'{prefix}#{self.endNode.uniqueId}']
+        return Relationship(properties=self.python_props, rel_type=self.type, start_node=start_neo4j_node, end_node=end_neo4j_node, globalId=f'{prefix}#{self.uniqueId}')
+
+    def __add__(self, other: RelationshipModel) -> RelationshipModel:
+        merged = RelationshipModel.merge_properties([self, other])
+        merged.type = other.type
+        return merged
+
+class GraphModel(BaseModel):
+    """
+    Contains a collection of nodes and relationships.
+    """
+    nodes: list[NodeModel] = Field(description='List of all nodes in the graph.')
+    relationships: list[RelationshipModel] = Field(description='List of all relationships (edges) in the graph.')
+
+    def to_neo4j(self) -> Graph:
+        g = Graph()
+        node_map: dict[str, Node] = {}
+        prefix = uuid4().hex
+        for node in self.nodes:
+            node.uniqueId = int(node.uniqueId)
+        for rel in self.relationships:
+            rel.uniqueId = int(rel.uniqueId)
+        for node_model in self.nodes:
+            node_obj = node_model.to_neo4j(prefix=prefix)
+            g.add_node(node_obj)
+            node_map[f'{prefix}#{node_model.uniqueId}'] = node_obj
+        for rel_model in self.relationships:
+            rel_obj = rel_model.to_neo4j(node_map=node_map, prefix=prefix)
+            g.add_relationship(rel_obj)
+        return g
+
+    @property
+    def entities(self) -> list[EntityModel]:
+        return list(self.nodes + self.relationships)
+
+    def model_post_init(self, __context: dict) -> None:
+        """
+        After parsing this model, fix any ID conflicts (merge id duplicates).
+        """
+        node_ids: set[int] = {n.uniqueId for n in self.nodes}
+        self.relationships = [r for r in self.relationships if r.startNode.uniqueId in node_ids and r.endNode.uniqueId in node_ids]
+        id_to_model: defaultdict[int, list[EntityModel]] = defaultdict(list)
+        for entity in self.entities:
+            id_to_model[entity.uniqueId].append(entity)
+        reserved_ids: set[int] = {id for id in id_to_model}
+        nodes: list[NodeModel] = []
+        relationships: list[RelationshipModel] = []
+        for id, elist in id_to_model.items():
+            if not elist:
+                continue
+            nlist: list[NodeModel] = []
+            rlist: list[RelationshipModel] = []
+            for e in elist:
+                if isinstance(e, NodeModel):
+                    nlist.append(e)
+                elif isinstance(e, RelationshipModel):
+                    rlist.append(e)
+            if nlist:
+                n: Optional[NodeModel] = NodeModel.merge_with_id(entities=nlist, uniqueId=id)
+            else:
+                n = None
+            if rlist:
+                r: Optional[RelationshipModel] = RelationshipModel.merge_with_id(entities=rlist, uniqueId=id)
+            else:
+                r = None
+            if n is None:
+                if r is None:
+                    continue
+                else:
+                    relationships.append(r)
+            elif r is None:
+                nodes.append(n)
+            else:
+                nodes.append(n)
+                new_id: int = generate_new_id(reserved_ids)
+                r.uniqueId = new_id
+                reserved_ids.add(new_id)
+                relationships.append(r)
+        self.nodes = nodes
+        self.relationships = relationships
+
+    def add_relationships(self, rels_to_add: list[RelationshipModel]) -> GraphModel:
+        new_relationships = list(self.relationships)
+        new_relationships.extend(rels_to_add)
+        return GraphModel(nodes=self.nodes, relationships=new_relationships)
+
+    def orphan_find_orphan_node_ids(self, components: list[list[int]]) -> list[int]:
+        if len(components) <= 1:
+            return []
+        main_comp: list[int] = max(components, key=len)
+        orphans: list[int] = []
+        for comp in components:
+            if comp is not main_comp:
+                for idx in comp:
+                    orphans.append(self.nodes[idx].uniqueId)
+        return orphans
+
+    def orphan_find_by_graph_topology(self, candidates: list[NodeModel]) -> Optional[NodeModel]:
+        if not candidates:
+            return None
+        degree_centrality = defaultdict(int)
+        for rel in self.relationships:
+            degree_centrality[rel.startNode.uniqueId] += 1
+            degree_centrality[rel.endNode.uniqueId] += 1
+        scores: list[tuple[int, NodeModel]] = sorted([(degree_centrality[candidate.uniqueId], candidate) for candidate in candidates], key=lambda x: x[0])
+        if not scores:
+            return None
+        highest_score, highest_score_node = scores[-1]
+        return highest_score_node
+
+    def orphan_find_central_node(self, nodes: list[NodeModel]) -> NodeModel:
+        """
+        Return the 'central' node in the subgraph by highest connectivity.
+        If none found, fallback to the first node.
+        """
+        if not nodes:
+            raise ValueError('No nodes given to _find_central_node')
+        node_ids_in_main: set[int] = {n.uniqueId for n in nodes}
+        connection_counts = defaultdict(int)
+        for rel in self.relationships:
+            if rel.startNode.uniqueId in node_ids_in_main:
+                connection_counts[rel.startNode.uniqueId] += 1
+            if rel.endNode.uniqueId in node_ids_in_main:
+                connection_counts[rel.endNode.uniqueId] += 1
+        if not connection_counts:
+            return nodes[0]
+        max_node_id = max(connection_counts, key=lambda k: connection_counts[k])
+        return next((n for n in nodes if n.uniqueId == max_node_id))
+
+    def orphan_validate_relationships(self, rels_to_add: list[RelationshipModel]) -> bool:
+        existing = set(((r.startNode.uniqueId, r.endNode.uniqueId, r.type) for r in self.relationships))
+        for r in rels_to_add:
+            triple: tuple[int, int, str] = (r.startNode.uniqueId, r.endNode.uniqueId, r.type)
+            if triple in existing:
+                return False
+        return True
+
+    def orphan_infer_relationship_type(self, source: NodeModel, target: NodeModel) -> str:
+        type_counter: defaultdict[str, int] = defaultdict(int)
+        for rel in self.relationships:
+            type_counter[rel.type] += 1
+        if type_counter:
+            common_type: str = max(type_counter, key=lambda k: type_counter[k])
+            return common_type
+        source_labels = '_'.join(sorted(source.labels))
+        target_labels = '_'.join(sorted(target.labels))
+        return f'{source_labels}_TO_{target_labels}'
+
+    def orphan_find_heuristic_connection(self, orphan_data: list[tuple[NodeModel, list[NodeModel]]], start_id: int, fallback_node: Optional[NodeModel]) -> list[RelationshipModel]:
+        new_rels = []
+        current_id = start_id
+        for orphan, candidates in orphan_data:
+            best_match = orphan.orphan_find_by_label_match(candidates)
+            if not best_match:
+                best_match = orphan.orphan_find_by_property_similarity(candidates)
+            if not best_match:
+                best_match = self.orphan_find_by_graph_topology(candidates)
+            target_node = best_match or fallback_node
+            if not target_node:
+                continue
+            rel_type = self.orphan_infer_relationship_type(orphan, target_node)
+            new_rels.append(RelationshipModel(uniqueId=current_id, type=rel_type, startNode=orphan, endNode=target_node, properties=[]))
+            current_id += 1
+        return new_rels
+
+    def orphan_build_adjacency(self) -> tuple[list[list[int]], dict[int, int]]:
+        node_idx_map: dict[int, int] = {}
+        for i, n in enumerate(self.nodes):
+            node_idx_map[n.uniqueId] = i
+        adjacency = [[] for _ in range(len(self.nodes))]
+        for r in self.relationships:
+            s_i = node_idx_map[r.startNode.uniqueId]
+            e_i = node_idx_map[r.endNode.uniqueId]
+            adjacency[s_i].append(e_i)
+            adjacency[e_i].append(s_i)
+        return (adjacency, node_idx_map)
+
+    def merge_duplicate_nodes(self) -> GraphModel:
+        """
+        Merges nodes that share the same 'signature' (labels, name property, etc.).
+        Updates relationships to refer to the merged node.
+        """
+        original_nodes: list[NodeModel] = self.nodes
+        relationships: list[RelationshipModel] = self.relationships
+        signatures: dict[str, list[int]] = {}
+        for idx, node in enumerate(original_nodes):
+            sig = node.signature
+            signatures.setdefault(sig, []).append(idx)
+        merge_map: dict[int, int] = {}
+        new_nodes: list[NodeModel] = []
+        for sig, indices in signatures.items():
+            if len(indices) == 1:
+                i = indices[0]
+                merge_map[i] = len(new_nodes)
+                new_nodes.append(original_nodes[i])
+            else:
+                base_node = original_nodes[indices[0]]
+                for i in indices[1:]:
+                    base_node = base_node + original_nodes[i]
+                merged_idx = len(new_nodes)
+                for i in indices:
+                    merge_map[i] = merged_idx
+                new_nodes.append(base_node)
+        new_relationships: list[RelationshipModel] = []
+        for rel in relationships:
+            s_idx: Optional[int] = rel.startNode.orphan_find_original_node_index(original_nodes)
+            if s_idx is None or s_idx not in merge_map:
+                continue
+            new_s: NodeModel = new_nodes[merge_map[s_idx]]
+            e_idx: Optional[int] = rel.endNode.orphan_find_original_node_index(original_nodes)
+            if e_idx is None or e_idx not in merge_map:
+                continue
+            new_e: NodeModel = new_nodes[merge_map[e_idx]]
+            if new_s.uniqueId == new_e.uniqueId:
+                continue
+            new_relationships.append(RelationshipModel(uniqueId=rel.uniqueId, type=rel.type, properties=rel.properties, startNode=new_s, endNode=new_e))
+        return GraphModel(nodes=new_nodes, relationships=new_relationships)
+
+class OrphanConnectionProposal(BaseModel):
+    """Contains proposed relationships for connecting orphan nodes."""
+    relationships: list[RelationshipModel] = Field(description='Proposed relationships to connect orphan nodes.')
+
+    def process_llm_response(self, next_id: int) -> list[RelationshipModel]:
+        new_rels = []
+        for rel in self.relationships:
+            new_rel = RelationshipModel(uniqueId=next_id, type=rel.type, startNode=rel.startNode, endNode=rel.endNode, properties=rel.properties.copy())
+            new_rels.append(new_rel)
+            next_id += 1
+        return new_rels
+
+class OrphanNodesFoundException(Exception):
+    """
+    Raised when orphan nodes are detected and automatically proposed relationships
+    fail validation.
+    """
+
+    def __init__(self, message: str, partial_graph: GraphModel, orphan_node_ids: list[int], proposed_relationships: list[RelationshipModel]):
+        super().__init__(message)
+        self.partial_graph = partial_graph
+        self.orphan_node_ids = orphan_node_ids
+        self.proposed_relationships = proposed_relationships
+
+==========
+
+### neo4j_extension\graph\structure.py
+from __future__ import annotations
+from abc import ABC, abstractmethod
+from collections import defaultdict
+from typing import Any, LiteralString, Mapping, Optional, Self, Union
+import neo4j
+import neo4j.graph
+from ..types._abc import Neo4jType
+from ..types._utils import PythonType, convert_neo4j_to_python, ensure_neo4j_type, ensure_python_type, get_neo4j_property_type_name
+from ..types.primitive import Neo4jList
+from ..typing import GraphSchema, Property, Triplet
+from ..utils import escape_identifier
+
+class Entity(ABC):
+    properties: dict[str, Neo4jType]
+    globalId: Optional[str]
+
+    def __init__(self, properties: Mapping[str, Union[Neo4jType, PythonType]], globalId: Optional[str]=None) -> None:
+        self.globalId = globalId
+        self.properties = {k: ensure_neo4j_type(v) for k, v in properties.items()}
+
+    def __getitem__(self, key: str) -> PythonType:
+        return ensure_python_type(self.properties[key])
+
+    def __setitem__(self, key: str, value: Union[Neo4jType, PythonType]) -> None:
+        self.properties[key] = ensure_neo4j_type(value)
+
+    def to_python_props(self) -> dict[str, PythonType]:
+        """
+        Convert properties to Python basic types(dict).
+        """
+        result: dict[str, PythonType] = {}
+        for k, v in self.properties.items():
+            result[k] = convert_neo4j_to_python(v)
+        if self.globalId:
+            result['globalId'] = self.globalId
+        return result
+
+    def to_cypher_props(self) -> LiteralString:
+        pairs: list[LiteralString] = []
+        for k, v in self.properties.items():
+            if isinstance(v, Neo4jList):
+                if not v.is_storable_as_property():
+                    raise ValueError(f"Property '{k}' contains a non-storable ListValue.")
+            pairs.append(f'{escape_identifier(k)}: {v.to_cypher()}')
+        if not pairs:
+            return '{}'
+        return '{ ' + ', '.join(pairs) + ' }'
 
     @abstractmethod
     def to_cypher(self) -> LiteralString:
-        """
-        Serialize this Python object into a valid Neo4j literal (or function call).
-        """
+        ...
 
     @classmethod
     @abstractmethod
-    def from_cypher(cls, cypher_str: str) -> Neo4jType:
-        """
-        Parse/deserialize a Neo4j literal (or function call) into this Python object.
-        """
+    def from_neo4j(cls, entity: neo4j.graph.Entity) -> Self:
+        ...
+
+    @property
+    def id(self) -> str:
+        return f'{self.globalId or self.__class__.__name__ + '_' + str(id(self))}'
 
     def __repr__(self) -> LiteralString:
         return self.to_cypher()
 
+    @abstractmethod
     def __str__(self) -> str:
-        return str(self.value)
+        ...
 
-    def __eq__(self, other: object) -> bool:
-        return isinstance(other, self.__class__) and self.value == getattr(other, 'value', None)
+class Node(Entity):
+    labels: frozenset[str]
+
+    def __init__(self, properties: Mapping[str, Union[Neo4jType, PythonType]], labels: Optional[set[str] | frozenset[str]]=None, globalId: Optional[str]=None) -> None:
+        super().__init__(properties=properties, globalId=globalId)
+        self.labels = frozenset(labels or ())
+
+    @classmethod
+    def from_neo4j(cls, entity: neo4j.graph.Node) -> Self:
+        properties: dict[str, Any] = entity._properties
+        globalId = properties.get('globalId')
+        if globalId:
+            globalId = str(globalId)
+        else:
+            globalId = None
+        return cls(properties=properties, labels=entity.labels, globalId=globalId)
+
+    def __str__(self) -> str:
+        return f'({self.labelstring}){self.to_python_props()}'
+
+    def to_cypher(self) -> LiteralString:
+        props: LiteralString = self.to_cypher_props()
+        return f'({escape_identifier(self.id)}: {self.safe_labelstring} {props})'
+
+    @property
+    def labelstring(self) -> str:
+        labels: str = ':'.join(sorted(self.labels))
+        return labels or 'Node'
+
+    @property
+    def safe_labelstring(self) -> LiteralString:
+        labels: LiteralString = ':'.join((escape_identifier(label) for label in sorted(self.labels)))
+        return labels or 'Node'
+
+class Relationship(Entity):
+    rel_type: str
+    start_node: Node
+    end_node: Node
+
+    def __init__(self, properties: Mapping[str, Union[Neo4jType, PythonType]], rel_type: str, start_node: Node, end_node: Node, globalId: Optional[str]=None) -> None:
+        super().__init__(properties=properties, globalId=globalId)
+        self.rel_type = rel_type
+        self.start_node = start_node
+        self.end_node = end_node
+
+    def __str__(self) -> str:
+        return f'[{self.start_node.id} {self.rel_type} {self.end_node.id}]{self.to_python_props()}'
+
+    @classmethod
+    def from_neo4j(cls, entity: neo4j.graph.Relationship) -> Self:
+        if entity.start_node is None or entity.end_node is None:
+            raise ValueError('Relationship must have both a start and end node.')
+        properties: dict[str, Any] = entity._properties
+        globalId = properties.get('globalId')
+        if globalId:
+            globalId = str(globalId)
+        else:
+            globalId = None
+        return cls(properties=properties, rel_type=entity.type, start_node=Node.from_neo4j(entity.start_node), end_node=Node.from_neo4j(entity.end_node), globalId=globalId)
+
+    def to_cypher(self) -> LiteralString:
+        start_node: LiteralString = self.start_node.to_cypher()
+        id: LiteralString = escape_identifier(self.id)
+        rel_type: LiteralString = escape_identifier(self.rel_type)
+        props_str: LiteralString = self.to_cypher_props()
+        end_node: LiteralString = self.end_node.to_cypher()
+        return f'{start_node}-[{id}: {rel_type} {props_str}]->{end_node}'
+
+class Graph:
+
+    def __init__(self, nodes: Optional[dict[str, Node]]=None, relationships: Optional[dict[str, Relationship]]=None) -> None:
+        self.nodes: dict[str, Node] = nodes or {}
+        self.relationships: dict[str, Relationship] = relationships or {}
+
+    def __repr__(self) -> str:
+        if self.nodes:
+            n = '\n' + '\n'.join(('- ' + str(n) for n in self.nodes.values())) + '\n'
+        else:
+            n = ''
+        if self.relationships:
+            r = '\n' + '\n'.join(('- ' + str(r) for r in self.relationships.values())) + '\n'
+        else:
+            r = ''
+        return f'### Nodes {n}\n### Relationships{r}'
+
+    @classmethod
+    def from_neo4j(cls, graph: neo4j.graph.Graph) -> Graph:
+        result = cls()
+        for entity in graph.nodes:
+            result.add_node(Node.from_neo4j(entity))
+        for entity in graph.relationships:
+            result.add_relationship(Relationship.from_neo4j(entity))
+        return result
+
+    def add_node(self, node: Node) -> None:
+        self.nodes[node.id] = node
+
+    def add_relationship(self, relationship: Relationship) -> None:
+        self.relationships[relationship.id] = relationship
+
+    def remove_node(self, node_id: str) -> None:
+        to_remove: list[str] = []
+        for rid, rel in self.relationships.items():
+            if rel.start_node.id == node_id or rel.end_node.id == node_id:
+                to_remove.append(rid)
+        for rid in to_remove:
+            self.remove_relationship(rid)
+        self.nodes.pop(node_id, None)
+
+    def remove_relationship(self, rel_id: str) -> None:
+        self.relationships.pop(rel_id, None)
+
+    def get_graph_schema(self) -> GraphSchema:
+        """
+        현재 in-memory Graph에 존재하는 Node/Relationship 정보를 기반으로
+        간단한 스키마 정보를 구성해 GraphSchema(dict) 형태로 반환한다.
+        """
+        node_props_dict: defaultdict[str, set[tuple[str, str]]] = defaultdict(set)
+        rel_props_dict: defaultdict[str, set] = defaultdict(set)
+        relationships_list: list[Triplet] = []
+        for node in self.nodes.values():
+            labels: str = node.labelstring
+            for prop_key, neo4j_val in node.properties.items():
+                prop_type_name: str = get_neo4j_property_type_name(neo4j_val)
+                node_props_dict[labels].add((prop_key, prop_type_name))
+        for rel in self.relationships.values():
+            for prop_key, neo4j_val in rel.properties.items():
+                prop_type_name: str = get_neo4j_property_type_name(neo4j_val)
+                rel_props_dict[rel.rel_type].add((prop_key, prop_type_name))
+            relationships_list.append({'start': rel.start_node.safe_labelstring, 'type': rel.rel_type, 'end': rel.end_node.safe_labelstring})
+        node_props: dict[str, list[Property]] = {}
+        for label, propset in node_props_dict.items():
+            node_props[label] = [{'property': prop_name, 'type': prop_type} for prop_name, prop_type in sorted(propset)]
+        rel_props: dict[str, list[Property]] = {}
+        for rtype, propset in rel_props_dict.items():
+            rel_props[rtype] = [{'property': prop_name, 'type': prop_type} for prop_name, prop_type in sorted(propset)]
+        graph_schema: GraphSchema = {'node_props': node_props, 'rel_props': rel_props, 'relationships': relationships_list, 'metadata': {'constraint': [], 'index': []}}
+        return graph_schema
+
+    def get_formatted_graph_schema(self) -> str:
+        """
+        현재 그래프의 스키마 정보를 사람이 읽기 좋은 형식의 문자열로 반환한다.
+        (Neo4jConnection.format_graph_schema()와 유사 형식)
+        """
+        schema = self.get_graph_schema()
+        lines: list[str] = []
+        lines.append('### Node properties')
+        node_props = schema.get('node_props', {})
+        for label, props in node_props.items():
+            lines.append(f'- {label}')
+            for p in props:
+                lines.append(f'  * {p['property']}: {p['type']}')
+        lines.append('')
+        lines.append('### Relationship properties')
+        rel_props = schema.get('rel_props', {})
+        for rtype, rprops in rel_props.items():
+            lines.append(f'- {rtype}')
+            for rp in rprops:
+                lines.append(f'  * {rp['property']}: {rp['type']}')
+        lines.append('')
+        lines.append('### Relationships')
+        rels = schema.get('relationships', [])
+        for rel_dict in rels:
+            lines.append(f'- (:{rel_dict['start']})-[:{rel_dict['type']}]->(:{rel_dict['end']})')
+        return '\n'.join(lines)
+if __name__ == '__main__':
+    print(Node(properties={}).to_cypher())
+    graph = Graph()
+    node1 = Node({'name': 'Alice'}, {'Person'}, 'alice')
+    node2 = Node({'name': 'Bob'}, {'Person'}, 'bob')
+    rel = Relationship({'since': 1999}, 'KNOWS', node1, node2, 'alice_knows_bob')
+    graph.add_node(node1)
+    graph.add_node(node2)
+    graph.add_relationship(rel)
+    print(node1)
+    print(node2)
+    print(rel)
+    print(graph.nodes)
+    print(graph.relationships)
+    graph.remove_node('alice')
+    print(graph.nodes)
+    print(graph.relationships)
+    graph.remove_relationship('alice_knows_bob')
+    print(graph.relationships)
 
 ==========
 
-### neo4j_extension/types/primitive.py
+### neo4j_extension\graph\__init__.py
+from .pydantic_action import AddNodeAction, AddPropertyAction, AddRelationshipAction, GraphAction, RemoveNodeAction, RemovePropertyAction, RemoveRelationshipAction, UpdateNodeLabelsAction, UpdatePropertyAction, UpdateRelationshipTypeAction, apply_actions
+from .pydantic_model import EntityModel, GraphModel, NodeModel, OrphanConnectionProposal, OrphanNodesFoundException, PropertyModel, PropertyType, RelationshipModel
+from .structure import Entity, Graph, Node, Relationship
+__all__ = ['AddNodeAction', 'AddPropertyAction', 'AddRelationshipAction', 'apply_actions', 'Entity', 'EntityModel', 'Graph', 'GraphAction', 'GraphModel', 'Node', 'NodeModel', 'OrphanConnectionProposal', 'OrphanNodesFoundException', 'PropertyModel', 'PropertyType', 'Relationship', 'RemoveNodeAction', 'RemovePropertyAction', 'RemoveRelationshipAction', 'UpdateNodeLabelsAction', 'UpdatePropertyAction', 'UpdateRelationshipTypeAction', 'RelationshipModel']
+
+==========
+
+### neo4j_extension\types\primitive.py
 from __future__ import annotations
 import base64
 import re
@@ -2395,17 +2083,75 @@ class Neo4jMap(Neo4jType[PyDict[str, Neo4jType]]):
 
 ==========
 
-### neo4j_extension/types/__init__.py
+### neo4j_extension\types\spatial.py
+from __future__ import annotations
+import json
+import re
+from typing import LiteralString, Optional, cast
 from ._abc import Neo4jType
-from ._utils import PythonType, convert_cypher_to_neo4j, convert_neo4j_to_python, convert_python_to_neo4j, ensure_neo4j_type, ensure_python_type, get_neo4j_property_type_name
-from .primitive import Neo4jBoolean, Neo4jByteArray, Neo4jFloat, Neo4jInteger, Neo4jList, Neo4jMap, Neo4jNull, Neo4jString
-from .spatial import Neo4jPoint, PointValue
-from .temporal import Neo4jDate, Neo4jDuration, Neo4jLocalDateTime, Neo4jLocalTime, Neo4jZonedDateTime, Neo4jZonedTime
-__all__ = ['Neo4jBoolean', 'Neo4jByteArray', 'Neo4jFloat', 'Neo4jInteger', 'Neo4jList', 'Neo4jMap', 'Neo4jNull', 'Neo4jString', 'Neo4jPoint', 'PointValue', 'Neo4jDate', 'Neo4jDuration', 'Neo4jType', 'Neo4jLocalDateTime', 'Neo4jLocalTime', 'Neo4jZonedDateTime', 'Neo4jZonedTime', 'PythonType', 'convert_neo4j_to_python', 'ensure_neo4j_type', 'get_neo4j_property_type_name', 'convert_cypher_to_neo4j', 'convert_python_to_neo4j', 'ensure_python_type', 'Neo4jBoolean', 'Neo4jByteArray', 'Neo4jFloat', 'Neo4jInteger', 'Neo4jList', 'Neo4jMap', 'Neo4jNull', 'Neo4jString', 'Neo4jPoint', 'PointValue', 'Neo4jDate', 'Neo4jDuration', 'Neo4jType', 'Neo4jLocalDateTime', 'Neo4jLocalTime', 'Neo4jZonedDateTime', 'Neo4jZonedTime', 'PythonType', 'convert_neo4j_to_python', 'ensure_neo4j_type', 'get_neo4j_property_type_name', 'convert_cypher_to_neo4j', 'convert_python_to_neo4j', 'ensure_python_type']
+POINT_REGEX = re.compile('^\\s*point\\(\\s*(\\{.*\\})\\s*\\)\\s*$', re.IGNORECASE)
+
+class PointValue:
+    """
+    Represents a POINT value in Neo4j, with CRS, X, Y, and optionally Z coordinates.
+    """
+    __slots__ = ('crs', 'x', 'y', 'z')
+
+    def __init__(self, crs: LiteralString, x: float, y: float, z: Optional[float]=None):
+        self.crs: LiteralString = crs
+        self.x: float = x
+        self.y: float = y
+        self.z: float | None = z
+
+    def __eq__(self, other: object) -> bool:
+        if not isinstance(other, PointValue):
+            return False
+        return self.crs == other.crs and self.x == other.x and (self.y == other.y) and (self.z == other.z)
+
+    def __repr__(self) -> str:
+        return f'PointValue(crs={self.crs!r}, x={self.x}, y={self.y}, z={self.z})'
+
+class Neo4jPoint(Neo4jType[PointValue]):
+    """
+    Corresponds to Neo4j's POINT type.
+    """
+
+    def __init__(self, value: PointValue):
+        self.value = value
+
+    def to_cypher(self) -> LiteralString:
+        parts: list[LiteralString] = [cast(LiteralString, f'x: {self.value.x}'), cast(LiteralString, f'y: {self.value.y}')]
+        if self.value.z is not None:
+            parts.append(cast(LiteralString, f'z: {self.value.z}'))
+        parts.append(f"crs: '{self.value.crs}'")
+        inner = '{ ' + ', '.join(parts) + ' }'
+        return f'point({inner})'
+
+    @classmethod
+    def from_cypher(cls, cypher_str: str) -> Neo4jPoint:
+        m = POINT_REGEX.match(cypher_str)
+        if not m:
+            raise ValueError(f'Invalid Neo4j point literal: {cypher_str}')
+        map_str = m.group(1).strip()
+        tmp = re.sub("'", '"', map_str)
+        tmp = re.sub('(\\w+)\\s*:', '"\\1":', tmp)
+        try:
+            data = json.loads(tmp)
+        except json.JSONDecodeError as e:
+            raise ValueError(f'Invalid point map: {map_str}') from e
+        if 'x' not in data or 'y' not in data:
+            raise ValueError(f'Invalid point map, must contain x,y keys: {cypher_str}')
+        crs = data.get('crs', 'cartesian')
+        x = float(data['x'])
+        y = float(data['y'])
+        z = data['z'] if 'z' in data else None
+        if z is not None:
+            z = float(z)
+        return cls(PointValue(crs=crs, x=x, y=y, z=z))
 
 ==========
 
-### neo4j_extension/types/temporal.py
+### neo4j_extension\types\temporal.py
 from __future__ import annotations
 import re
 from datetime import date, datetime, time, timedelta
@@ -2601,7 +2347,44 @@ class Neo4jDuration(Neo4jType[timedelta]):
 
 ==========
 
-### neo4j_extension/types/_utils.py
+### neo4j_extension\types\_abc.py
+from __future__ import annotations
+from abc import ABC, abstractmethod
+from typing import Generic, LiteralString, TypeVar
+T = TypeVar('T')
+
+class Neo4jType(ABC, Generic[T]):
+    """
+    Base class for Python representations of specific types
+    that can be stored in or returned from Neo4j via Neo4j.
+    """
+    value: T
+
+    @abstractmethod
+    def to_cypher(self) -> LiteralString:
+        """
+        Serialize this Python object into a valid Neo4j literal (or function call).
+        """
+
+    @classmethod
+    @abstractmethod
+    def from_cypher(cls, cypher_str: str) -> Neo4jType:
+        """
+        Parse/deserialize a Neo4j literal (or function call) into this Python object.
+        """
+
+    def __repr__(self) -> LiteralString:
+        return self.to_cypher()
+
+    def __str__(self) -> str:
+        return str(self.value)
+
+    def __eq__(self, other: object) -> bool:
+        return isinstance(other, self.__class__) and self.value == getattr(other, 'value', None)
+
+==========
+
+### neo4j_extension\types\_utils.py
 from datetime import date, datetime, time, timedelta
 from typing import Dict as PyDict
 from typing import List as PyList
@@ -2766,75 +2549,13 @@ def get_neo4j_property_type_name(val: Neo4jType) -> LiteralString:
 
 ==========
 
-### neo4j_extension/types/spatial.py
-from __future__ import annotations
-import json
-import re
-from typing import LiteralString, Optional, cast
+### neo4j_extension\types\__init__.py
 from ._abc import Neo4jType
-POINT_REGEX = re.compile('^\\s*point\\(\\s*(\\{.*\\})\\s*\\)\\s*$', re.IGNORECASE)
-
-class PointValue:
-    """
-    Represents a POINT value in Neo4j, with CRS, X, Y, and optionally Z coordinates.
-    """
-    __slots__ = ('crs', 'x', 'y', 'z')
-
-    def __init__(self, crs: LiteralString, x: float, y: float, z: Optional[float]=None):
-        self.crs: LiteralString = crs
-        self.x: float = x
-        self.y: float = y
-        self.z: float | None = z
-
-    def __eq__(self, other: object) -> bool:
-        if not isinstance(other, PointValue):
-            return False
-        return self.crs == other.crs and self.x == other.x and (self.y == other.y) and (self.z == other.z)
-
-    def __repr__(self) -> str:
-        return f'PointValue(crs={self.crs!r}, x={self.x}, y={self.y}, z={self.z})'
-
-class Neo4jPoint(Neo4jType[PointValue]):
-    """
-    Corresponds to Neo4j's POINT type.
-    """
-
-    def __init__(self, value: PointValue):
-        self.value = value
-
-    def to_cypher(self) -> LiteralString:
-        parts: list[LiteralString] = [cast(LiteralString, f'x: {self.value.x}'), cast(LiteralString, f'y: {self.value.y}')]
-        if self.value.z is not None:
-            parts.append(cast(LiteralString, f'z: {self.value.z}'))
-        parts.append(f"crs: '{self.value.crs}'")
-        inner = '{ ' + ', '.join(parts) + ' }'
-        return f'point({inner})'
-
-    @classmethod
-    def from_cypher(cls, cypher_str: str) -> Neo4jPoint:
-        m = POINT_REGEX.match(cypher_str)
-        if not m:
-            raise ValueError(f'Invalid Neo4j point literal: {cypher_str}')
-        map_str = m.group(1).strip()
-        tmp = re.sub("'", '"', map_str)
-        tmp = re.sub('(\\w+)\\s*:', '"\\1":', tmp)
-        try:
-            data = json.loads(tmp)
-        except json.JSONDecodeError as e:
-            raise ValueError(f'Invalid point map: {map_str}') from e
-        if 'x' not in data or 'y' not in data:
-            raise ValueError(f'Invalid point map, must contain x,y keys: {cypher_str}')
-        crs = data.get('crs', 'cartesian')
-        x = float(data['x'])
-        y = float(data['y'])
-        z = data['z'] if 'z' in data else None
-        if z is not None:
-            z = float(z)
-        return cls(PointValue(crs=crs, x=x, y=y, z=z))
-
-==========
-
-### neo4j_extension/bolt/sorted/py.py
+from ._utils import PythonType, convert_cypher_to_neo4j, convert_neo4j_to_python, convert_python_to_neo4j, ensure_neo4j_type, ensure_python_type, get_neo4j_property_type_name
+from .primitive import Neo4jBoolean, Neo4jByteArray, Neo4jFloat, Neo4jInteger, Neo4jList, Neo4jMap, Neo4jNull, Neo4jString
+from .spatial import Neo4jPoint, PointValue
+from .temporal import Neo4jDate, Neo4jDuration, Neo4jLocalDateTime, Neo4jLocalTime, Neo4jZonedDateTime, Neo4jZonedTime
+__all__ = ['Neo4jBoolean', 'Neo4jByteArray', 'Neo4jFloat', 'Neo4jInteger', 'Neo4jList', 'Neo4jMap', 'Neo4jNull', 'Neo4jString', 'Neo4jPoint', 'PointValue', 'Neo4jDate', 'Neo4jDuration', 'Neo4jType', 'Neo4jLocalDateTime', 'Neo4jLocalTime', 'Neo4jZonedDateTime', 'Neo4jZonedTime', 'PythonType', 'convert_neo4j_to_python', 'ensure_neo4j_type', 'get_neo4j_property_type_name', 'convert_cypher_to_neo4j', 'convert_python_to_neo4j', 'ensure_python_type', 'Neo4jBoolean', 'Neo4jByteArray', 'Neo4jFloat', 'Neo4jInteger', 'Neo4jList', 'Neo4jMap', 'Neo4jNull', 'Neo4jString', 'Neo4jPoint', 'PointValue', 'Neo4jDate', 'Neo4jDuration', 'Neo4jType', 'Neo4jLocalDateTime', 'Neo4jLocalTime', 'Neo4jZonedDateTime', 'Neo4jZonedTime', 'PythonType', 'convert_neo4j_to_python', 'ensure_neo4j_type', 'get_neo4j_property_type_name', 'convert_cypher_to_neo4j', 'convert_python_to_neo4j', 'ensure_python_type']
 
 ==========
 

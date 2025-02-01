@@ -7,7 +7,11 @@ from neo4j import ManagedTransaction, Result
 from neo4j.exceptions import ServiceUnavailable
 
 from neo4j_extension import (
+    AddNodeAction,
+    AddPropertyAction,
+    AddRelationshipAction,
     Graph,
+    GraphModel,
     GraphSchema,
     Neo4jBoolean,
     Neo4jByteArray,
@@ -25,15 +29,26 @@ from neo4j_extension import (
     Neo4jString,
     Neo4jZonedDateTime,
     Node,
+    NodeModel,
     PointValue,
+    PropertyModel,
     Relationship,
+    RelationshipModel,
+    RemoveNodeAction,
+    RemovePropertyAction,
+    RemoveRelationshipAction,
+    UpdateNodeLabelsAction,
+    UpdatePropertyAction,
+    apply_actions,
     convert_neo4j_to_python,
     ensure_neo4j_type,
+    generate_new_id,
     get_safe_query,
     split_by_comma_top_level,
     tokenize_cypher_expression,
     with_session,
 )
+from neo4j_extension.graph.pydantic_model import OrphanNodesFoundException
 
 
 class Neo4jTestconnection(Neo4jConnection):
@@ -838,6 +853,444 @@ class TestNeo4jConnectionUtilities(unittest.TestCase):
         self.assertEqual(end_node.globalId, "gidB")
         self.assertEqual(relationship.rel_type, "KNOWS")
         self.assertEqual(relationship["since"], 2022)
+
+
+class TestPydanticActions(unittest.TestCase):
+    """
+    pydantic_action.py에 정의된 AddNodeAction, RemoveNodeAction, AddRelationshipAction,
+    RemoveRelationshipAction, AddPropertyAction, UpdatePropertyAction, RemovePropertyAction,
+    UpdateNodeLabelsAction, apply_actions 등을 테스트한다.
+    """
+
+    def setUp(self):
+        """
+        각 테스트 시작 시 공통으로 사용할 그래프 기본 상태를 구성한다.
+        - NodeModel #1, #2
+        - RelationshipModel #11 (노드 #1->#2)
+        """
+        # NodeModel 설정
+        self.nodeA = NodeModel(
+            uniqueId=1,
+            labels=["Person"],
+            properties=[
+                PropertyModel(k="name", v="Alice"),
+                PropertyModel(k="age", v=25),
+            ],
+        )
+        self.nodeB = NodeModel(
+            uniqueId=2,
+            labels=["Person"],
+            properties=[
+                PropertyModel(k="name", v="Bob"),
+                PropertyModel(k="age", v=30),
+            ],
+        )
+
+        # RelationshipModel 설정
+        # A -> B (FRIEND)
+        self.relAB = RelationshipModel(
+            uniqueId=11,
+            type="FRIEND",
+            startNode=self.nodeA,
+            endNode=self.nodeB,
+            properties=[PropertyModel(k="since", v=2020)],
+        )
+
+        # 초기 GraphModel
+        self.base_graph = GraphModel(
+            nodes=[self.nodeA, self.nodeB], relationships=[self.relAB]
+        )
+
+    def tearDown(self):
+        """테스트 후 정리 작업이 필요하면 여기서 수행"""
+        pass
+
+    def test_add_node_action(self):
+        """
+        AddNodeAction으로 새로운 노드(예: #3)를 추가하고,
+        apply_actions가 적용된 결과를 확인한다.
+        """
+        new_node = NodeModel(
+            uniqueId=3,
+            labels=["Person", "Tester"],
+            properties=[PropertyModel(k="name", v="Charlie")],
+        )
+        action = AddNodeAction(
+            type="AddNode",  # Pydantic에서 'type' 필드는 literal로 유지
+            nodes=[new_node],
+        )
+
+        updated_graph = apply_actions(self.base_graph, [action])
+        self.assertEqual(len(updated_graph.nodes), 3)
+        node_ids = [n.uniqueId for n in updated_graph.nodes]
+        self.assertIn(3, node_ids, "uniqueId=3 인 노드가 추가되어야 한다.")
+
+        # 노드의 속성 제대로 들어갔는지 검사
+        added_node = next(n for n in updated_graph.nodes if n.uniqueId == 3)
+        self.assertIn("Charlie", [p.v for p in added_node.properties])
+
+    def test_remove_node_action(self):
+        """
+        RemoveNodeAction으로 기존 노드 A(#1)을 제거한다.
+        노드를 제거하면 연결된 관계도 제거됨을 확인한다.
+        """
+        # Node #1 제거
+        action = RemoveNodeAction(type="RemoveNode", nodeIds=[1])
+        updated_graph = apply_actions(self.base_graph, [action])
+
+        # 결과 그래프에 node #1이 없어야 하고, rel #11도 없어야 함
+        node_ids = [n.uniqueId for n in updated_graph.nodes]
+        rel_ids = [r.uniqueId for r in updated_graph.relationships]
+
+        self.assertNotIn(1, node_ids, "노드 #1은 제거되어야 함")
+        self.assertNotIn(
+            11, rel_ids, "노드 #1이 연결된 관계 #11도 제거되어야 함"
+        )
+        self.assertEqual(
+            len(updated_graph.nodes), 1, "남은 노드는 1개여야 함"
+        )
+        self.assertEqual(
+            len(updated_graph.relationships), 0, "남은 관계는 0개여야 함"
+        )
+
+    def test_add_relationship_action(self):
+        """
+        AddRelationshipAction으로 새로운 관계(#12)를 추가한다.
+        """
+        # 새로운 노드 C(#3)도 만들고 => 두 노드(#2, #3) 사이 관계 #12를 추가해본다.
+        new_nodeC = NodeModel(
+            uniqueId=3,
+            labels=["Person"],
+            properties=[PropertyModel(k="name", v="Chris")],
+        )
+        add_node = AddNodeAction(type="AddNode", nodes=[new_nodeC])
+
+        new_rel = RelationshipModel(
+            uniqueId=12,
+            type="KNOWS",
+            startNode=self.nodeB,
+            endNode=new_nodeC,
+            properties=[PropertyModel(k="level", v="colleague")],
+        )
+        add_rel = AddRelationshipAction(
+            type="AddRelationship", relationships=[new_rel]
+        )
+
+        updated_graph = apply_actions(self.base_graph, [add_node, add_rel])
+        self.assertEqual(len(updated_graph.nodes), 3)
+        self.assertEqual(len(updated_graph.relationships), 2)
+        # 관계 #12가 존재하는지 확인
+        rel_ids = [r.uniqueId for r in updated_graph.relationships]
+        self.assertIn(12, rel_ids)
+
+    def test_remove_relationship_action(self):
+        """
+        RemoveRelationshipAction으로 기존 관계 #11을 제거한다.
+        노드는 남아 있어야 한다.
+        """
+        action = RemoveRelationshipAction(
+            type="RemoveRelationship", relationshipIds=[11]
+        )
+        updated_graph = apply_actions(self.base_graph, [action])
+
+        self.assertEqual(
+            len(updated_graph.nodes), 2, "노드는 그대로 2개 유지"
+        )
+        self.assertEqual(
+            len(updated_graph.relationships), 0, "관계 #11이 제거되어야 함"
+        )
+
+    def test_add_update_remove_property_action(self):
+        """
+        AddPropertyAction, UpdatePropertyAction, RemovePropertyAction
+        세 가지를 순차적으로 적용하여, 노드 혹은 관계의 속성 변화를 확인한다.
+        """
+        # 1) AddPropertyAction: Node #1에 새로운 속성 gender="Female" 추가
+        add_prop_action = AddPropertyAction(
+            type="AddProperty",
+            entityId=1,  # NodeA
+            property=PropertyModel(k="gender", v="Female"),
+        )
+
+        # 2) UpdatePropertyAction: Relationship #11의 since=2021 로 변경
+        update_prop_action = UpdatePropertyAction(
+            type="UpdateProperty",
+            entityId=11,  # relAB
+            propertyKey="since",
+            newValue=2021,
+        )
+
+        # 3) RemovePropertyAction: Node #2의 age 속성 제거
+        remove_prop_action = RemovePropertyAction(
+            type="RemoveProperty",
+            entityId=2,  # NodeB
+            propertyKey="age",
+        )
+
+        updated_graph = apply_actions(
+            self.base_graph,
+            [add_prop_action, update_prop_action, remove_prop_action],
+        )
+
+        # 결과 확인
+        # (1) Node #1 properties
+        node1 = next(n for n in updated_graph.nodes if n.uniqueId == 1)
+        self.assertIn(
+            "gender",
+            [p.k for p in node1.properties],
+            "gender 속성이 추가되어야 함",
+        )
+        gender_val = next(p.v for p in node1.properties if p.k == "gender")
+        self.assertEqual(gender_val, "Female")
+
+        # (2) Relationship #11 properties
+        relAB = next(
+            r for r in updated_graph.relationships if r.uniqueId == 11
+        )
+        since_val = next(p.v for p in relAB.properties if p.k == "since")
+        self.assertEqual(
+            since_val, 2021, "since=2020이 2021로 업데이트 되어야 함"
+        )
+
+        # (3) Node #2의 age 제거
+        node2 = next(n for n in updated_graph.nodes if n.uniqueId == 2)
+        self.assertNotIn(
+            "age",
+            [p.k for p in node2.properties],
+            "age 속성이 제거되어야 함",
+        )
+
+    def test_update_node_labels_action(self):
+        """
+        UpdateNodeLabelsAction으로 Node #2의 라벨을 변경한다.
+        """
+        action = UpdateNodeLabelsAction(
+            type="UpdateNodeLabels", nodeId=2, newLabels=["Person", "VIP"]
+        )
+        updated_graph = apply_actions(self.base_graph, [action])
+
+        node2 = next(n for n in updated_graph.nodes if n.uniqueId == 2)
+        self.assertEqual(sorted(node2.labels), ["Person", "VIP"])
+
+    def test_generate_new_id(self):
+        """
+        generate_new_id로 새로운 엔티티 ID를 생성할 수 있는지 확인.
+        """
+        existing_node_ids = {1, 2}
+        existing_rel_ids = {11, 12}
+        new_id = generate_new_id(existing_node_ids.union(existing_rel_ids))
+        # 사용 중인 ID는 1,2,11,12 -> 최대값은 12 -> 새 ID는 13이어야 한다.
+        self.assertEqual(new_id, 13)
+
+        # 한 번 더 호출 시(직접 existing_*_ids에 추가를 가정)
+        existing_node_ids.add(13)
+        next_id = generate_new_id(existing_node_ids.union(existing_rel_ids))
+        self.assertEqual(next_id, 14)
+
+
+class TestIDConflictsAndMerging(unittest.TestCase):
+    """
+    pydantic 기반 GraphModel에서 uniqueId 충돌 상황을 의도적으로 만들어
+    적용 결과가 어떻게 병합(Merge)되고 처리되는지 테스트한다.
+    """
+
+    def setUp(self):
+        # 초기 그래프: Node #1, #2, Relationship #11 (1 -> 2)
+        self.nodeA = NodeModel(
+            uniqueId=1,
+            labels=["Person"],
+            properties=[PropertyModel(k="name", v="Alice")],
+        )
+        self.nodeB = NodeModel(
+            uniqueId=2,
+            labels=["Person"],
+            properties=[PropertyModel(k="name", v="Bob")],
+        )
+        self.relAB = RelationshipModel(
+            uniqueId=11,
+            type="FRIEND",
+            startNode=self.nodeA,
+            endNode=self.nodeB,
+            properties=[PropertyModel(k="since", v=2020)],
+        )
+        self.base_graph = GraphModel(
+            nodes=[self.nodeA, self.nodeB], relationships=[self.relAB]
+        )
+
+    def tearDown(self):
+        pass
+
+    def test_node_node_same_id_conflict(self):
+        """
+        NodeModel끼리 같은 uniqueId=1을 가진 새 노드를 AddNodeAction으로 추가.
+        -> 내부적으로 병합되어 하나의 NodeModel로 합쳐지는지 확인.
+        """
+        # 새로운 Node도 #1 ID를 사용 (이미 Alice가 있음)
+        conflict_node = NodeModel(
+            uniqueId=1,
+            labels=["Actor"],
+            properties=[PropertyModel(k="role", v="Protagonist")],
+        )
+        add_conflict_node_action = AddNodeAction(
+            type="AddNode", nodes=[conflict_node]
+        )
+
+        updated_graph = apply_actions(
+            self.base_graph, [add_conflict_node_action]
+        )
+        # 기존 Node #1(Alice) + 새 Node #1(Actor) => 1개로 병합
+        self.assertEqual(len(updated_graph.nodes), 2)
+        # (원래 #2 포함해서 2개)
+
+        # 병합된 Node #1 확인
+        merged_node_1 = next(
+            n for n in updated_graph.nodes if n.uniqueId == 1
+        )
+        # 기존 'Person' 라벨 + 새 'Actor' 라벨 => 2개 라벨
+        self.assertIn("Person", merged_node_1.labels)
+        self.assertIn("Actor", merged_node_1.labels)
+
+        # 기존 name="Alice" 속성도 살아있고, 새 role="Protagonist" 속성도 병합되었는지
+        prop_keys = [p.k for p in merged_node_1.properties]
+        self.assertIn("name", prop_keys)
+        self.assertIn("role", prop_keys)
+
+    def test_node_relationship_same_id_conflict(self):
+        """
+        이미 Node #10이 존재하는 상황에서,
+        RelationshipModel이 동일한 ID(#10)를 가지면,
+        GraphModel.model_post_init에서 Relationship이 새 ID로 바뀌는 로직을 확인한다.
+        """
+        # 1) 먼저 Node #10을 추가해둔다.
+        node10 = NodeModel(
+            uniqueId=10,
+            labels=["Person"],
+            properties=[PropertyModel(k="name", v="Ten")],
+        )
+        add_node_10 = AddNodeAction(type="AddNode", nodes=[node10])
+        graph_after_node = apply_actions(self.base_graph, [add_node_10])
+
+        # 2) Relationship #10이 등장 (Node #1->Node #2)
+        conflict_rel = RelationshipModel(
+            uniqueId=10,
+            type="TEST_CONFLICT",
+            startNode=self.nodeA,  # #1
+            endNode=self.nodeB,  # #2
+            properties=[PropertyModel(k="reason", v="same_id_node")],
+        )
+        add_conflict_rel = AddRelationshipAction(
+            type="AddRelationship", relationships=[conflict_rel]
+        )
+
+        updated_graph = apply_actions(graph_after_node, [add_conflict_rel])
+        # Node #10은 그대로, Relationship #10은 새 ID로 재할당되어야 함
+        # (코드 상, `RelationshipModel.merge_with_same_id` -> model_post_init() 시점에서)
+        self.assertEqual(len(updated_graph.nodes), 3)
+        self.assertEqual(
+            len(updated_graph.relationships), 2
+        )  # 원래 #11 + 새 관계(하지만 ID는 10이 아님)
+
+        # 관계들 목록을 살펴볼 때, ID=10인 관계는 없어야 하고, 새로운 ID가 부여되어 있어야 함.
+        all_rel_ids = [r.uniqueId for r in updated_graph.relationships]
+        self.assertNotIn(
+            10,
+            all_rel_ids,
+            "Relationship #10은 node와 ID가 충돌하므로, 새 ID가 부여되어야 한다.",
+        )
+        # 새로 부여된 ID는 generate_new_id() 로직에 따라 12나 13... 등등이 될 수 있음 (동적)
+        # 일단 개수로만 검증
+
+    def test_relationship_relationship_same_id_conflict(self):
+        """
+        이미 #11인 RelationshipModel이 존재하는데,
+        다시 AddRelationshipAction으로 #11을 추가해본다.
+        -> 같은 ID면 병합 과정에서 경고만 내고 최종엔 1개 relationship만 남아 있어야 함.
+        -> 속성도 최종 add한 Relationship 값으로 덮어쓰기.
+        """
+        duplicate_rel = RelationshipModel(
+            uniqueId=11,
+            type="FRIEND",
+            startNode=self.nodeA,
+            endNode=self.nodeB,
+            properties=[PropertyModel(k="since", v=9999)],
+        )
+        add_dup_rel = AddRelationshipAction(
+            type="AddRelationship", relationships=[duplicate_rel]
+        )
+
+        updated_graph = apply_actions(self.base_graph, [add_dup_rel])
+        self.assertEqual(
+            len(updated_graph.relationships), 1
+        )  # 중복된 #11은 하나로 유지
+
+        # since가 최종 9999로 덮어쓰였는지 확인
+        final_rel = updated_graph.relationships[0]
+        since_val = next(
+            (p.v for p in final_rel.properties if p.k == "since"), None
+        )
+        self.assertEqual(since_val, 9999)
+
+    def test_orphan_nodes_detection(self):
+        """
+        고아 노드(연결되지 않은 여러 노드)들이 존재할 때,
+        GraphModel 내부 로직으로 components를 구분했을 때
+        별도의 연결 제안(OrphanConnectionProposal)이 필요할 수 있다.
+
+        실제로 OrphanNodesFoundException을 발생시키는 로직은
+        'apply_actions'에서 직접 던지지 않으므로,
+        여기서는 GraphModel method들을 직접 다뤄본다.
+        """
+        # base_graph에는 #1->#2 관계가 있다. 여기서 노드 #3, #4를 추가하되, 서로 관계 없이 독립 (고아) 상태
+        node3 = NodeModel(
+            uniqueId=3,
+            labels=["Misc"],
+            properties=[PropertyModel(k="val", v="three")],
+        )
+        node4 = NodeModel(
+            uniqueId=4,
+            labels=["Misc"],
+            properties=[PropertyModel(k="val", v="four")],
+        )
+
+        new_graph = GraphModel(
+            nodes=[self.nodeA, self.nodeB, node3, node4],
+            relationships=[self.relAB],  # node3,4와는 어떠한 연결도 없음
+        )
+        # 이제 new_graph는 총 4개의 노드 중 2개씩 다른 component로 나뉘어 있음.
+        # -> components = [[0,1], [2], [3]] 처럼 구성될 것 (node #1->#2 한 묶음, node #3, node #4 각각)
+
+        adjacency, node_idx_map = new_graph.orphan_build_adjacency()
+        # node_idx_map[ uniqueId ] = index
+        # adjacency[index] = [ ...연결된 index들 ... ]
+        # 일단 여기서는 상세 구조만 확인
+        self.assertEqual(
+            len(adjacency), 4, "총 4개 노드 adjacency list이어야 함"
+        )
+
+        # orphan_find_orphan_node_ids( ) 검증
+        # components를 찾는 별도 알고리즘이 new_graph 내장이라 가정
+        # 여기서는 간단히 "main comp"가 nodeA-B, 그외 node3,4는 orphan
+        # (실제 구현은 pydantic_model.py의 orphan_find_orphan_node_ids 로직 참고)
+        # 아래처럼 인위적으로 components 리스트를 만든다고 가정:
+        components = [[0, 1], [2], [3]]
+        orphans = new_graph.orphan_find_orphan_node_ids(components)
+        self.assertEqual(
+            len(orphans), 2, "node3(#3), node4(#4) 가 orphan 목록이어야 함"
+        )
+
+        # 연결 제안(OrphanConnectionProposal)을 만들거나, OrphanNodesFoundException을 발생시켜 볼 수 있음
+        # 여기서는 인위적으로 예외를 던져 시나리오 확인
+        if orphans:
+            try:
+                raise OrphanNodesFoundException(
+                    message="Orphan nodes found. Please connect them or propose relationships.",
+                    partial_graph=new_graph,
+                    orphan_node_ids=orphans,
+                    proposed_relationships=[],
+                )
+            except OrphanNodesFoundException as e:
+                self.assertIn(3, e.orphan_node_ids)
+                self.assertIn(4, e.orphan_node_ids)
 
 
 if __name__ == "__main__":
