@@ -401,6 +401,14 @@ class Neo4jConnection:
         return self.async_driver
 
     @property
+    def session(self) -> Session:
+        return self.connection.session(**self.session_kwargs)
+
+    @property
+    async def asession(self) -> AsyncSession:
+        return (await self.aconnection).session(**self.session_kwargs)
+
+    @property
     def uri(self) -> str:
         return f"{self.protocol}://{self.host}:{self.port}"
 
@@ -1322,3 +1330,47 @@ class Neo4jConnection:
         if record is None:
             return 0
         return record["cnt"]
+
+    @with_session.readonly_transaction
+    def get_child_global_ids(
+        self,
+        tx: ManagedTransaction,
+        start_node_gid: str,
+        rel_type: Optional[str] = None,
+    ) -> list[str]:
+        if rel_type is None:
+            query = """
+            MATCH (n {{ globalId: $startId }})-[]->(end)
+            WHERE end.globalId IS NOT NULL
+            RETURN end.globalId AS end
+            """
+        else:
+            query = f"""
+            MATCH (n {{ globalId: $startId }})-[:{escape_identifier(rel_type)}]->(end)
+            WHERE end.globalId IS NOT NULL
+            RETURN end.globalId AS end
+            """
+        result = tx.run(query, startId=start_node_gid)
+        return [str(record["end"]) for record in result]
+
+    @with_async_session.readonly_transaction
+    async def aget_child_global_ids(
+        self,
+        tx: AsyncManagedTransaction,
+        start_node_gid: str,
+        rel_type: Optional[str] = None,
+    ) -> list[str]:
+        if rel_type is None:
+            query = """
+            MATCH (n {{ globalId: $startId }})-[]->(end)
+            WHERE end.globalId IS NOT NULL
+            RETURN end.globalId AS end
+            """
+        else:
+            query = f"""
+            MATCH (n {{ globalId: $startId }})-[:{escape_identifier(rel_type)}]->(end)
+            WHERE end.globalId IS NOT NULL
+            RETURN end.globalId AS end
+            """
+        result = await tx.run(query, startId=start_node_gid)
+        return [str(record["end"]) async for record in result]
