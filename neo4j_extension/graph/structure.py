@@ -56,8 +56,6 @@ class Entity(ABC):
         result: dict[str, PythonType] = {}
         for k, v in self.properties.items():
             result[k] = convert_neo4j_to_python(v)
-        if self.globalId:
-            result["globalId"] = self.globalId
         return result
 
     def to_cypher_props(self) -> LiteralString:
