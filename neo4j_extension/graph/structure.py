@@ -22,7 +22,7 @@ from ..types._utils import (
     ensure_python_type,
     get_neo4j_property_type_name,
 )
-from ..types.primitive import Neo4jList
+from ..types.primitive import Neo4jList, Neo4jString
 from ..typing import GraphSchema, Property, Triplet
 from ..utils import escape_identifier
 
@@ -56,6 +56,8 @@ class Entity(ABC):
         result: dict[str, PythonType] = {}
         for k, v in self.properties.items():
             result[k] = convert_neo4j_to_python(v)
+        if self.globalId:
+            result["globalId"] = self.globalId
         return result
 
     def to_cypher_props(self) -> LiteralString:
@@ -68,6 +70,10 @@ class Entity(ABC):
                         f"Property '{k}' contains a non-storable ListValue."
                     )
             pairs.append(f"{escape_identifier(k)}: {v.to_cypher()}")
+        if self.globalId:
+            pairs.append(
+                f"globalId: {Neo4jString(self.globalId).to_cypher()}"
+            )
         if not pairs:
             return "{}"
         return "{ " + ", ".join(pairs) + " }"
@@ -355,6 +361,23 @@ class Graph:
             )
 
         return "\n".join(lines)
+
+    def to_cypher(self) -> str:
+        node_queries: list[str] = []
+        for node in self.nodes.values():
+            node_query = f"({escape_identifier(node.id)}:{node.safe_labelstring} {node.to_cypher_props()})"
+            node_queries.append(node_query)
+        rel_queries: list[str] = []
+        for rel in self.relationships.values():
+            rel_query = (
+                f"({escape_identifier(rel.start_node.id)})-"
+                f"[{escape_identifier(rel.id)}:{escape_identifier(rel.rel_type)} {rel.to_cypher_props()}]->"
+                f"({escape_identifier(rel.end_node.id)})"
+            )
+            rel_queries.append(rel_query)
+        all_queries = node_queries + rel_queries
+        cypher = "CREATE\n  " + ",\n  ".join(all_queries) + ";"
+        return cypher
 
 
 if __name__ == "__main__":

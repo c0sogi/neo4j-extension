@@ -1,6 +1,6 @@
 [project]
 name = "neo4j-extension"
-version = "0.1.11"
+version = "0.1.12"
 description = "Define types for Neo4j"
 readme = "README.md"
 requires-python = ">=3.12"
