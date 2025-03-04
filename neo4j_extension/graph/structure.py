@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from collections import defaultdict
 from typing import (
     Any,
     LiteralString,
@@ -23,7 +22,7 @@ from ..types._utils import (
     get_neo4j_property_type_name,
 )
 from ..types.primitive import Neo4jList, Neo4jString
-from ..typing import GraphSchema, Property, Triplet
+from ..typing import GraphSchema, Property
 from ..utils import escape_identifier
 
 
@@ -265,37 +264,40 @@ class Graph:
         """
 
         # node_props_dict[label] = set of (propName, propType)
-        node_props_dict: defaultdict[str, set[tuple[str, str]]] = (
-            defaultdict(set)
-        )
+        node_props_dict: dict[str, set[tuple[str, str]]] = {}
         # rel_props_dict[rel_type] = set of (propName, propType)
-        rel_props_dict: defaultdict[str, set] = defaultdict(set)
+        rel_props_dict: dict[str, set] = {}
 
         # relationships_list = list of { start: <label>, type: <rel_type>, end: <label> }
-        relationships_list: list[Triplet] = []
+        relationships: set[tuple[str, str, str]] = set()
 
         # 1) 노드 정보 수집
         for node in self.nodes.values():
             # 여러 레이블을 콜론(:)으로 합쳐 하나의 문자열로 취급
             # 예: frozenset({'Person','Teacher'}) => "Person:Teacher"
             labels: str = node.labelstring
+            node_props_dict.setdefault(labels, set())
+
+            # 노드 타입별로 prop key / type
             for prop_key, neo4j_val in node.properties.items():
                 prop_type_name: str = get_neo4j_property_type_name(neo4j_val)
                 node_props_dict[labels].add((prop_key, prop_type_name))
 
         # 2) 관계 정보 수집
         for rel in self.relationships.values():
+            rel_props_dict.setdefault(rel.rel_type, set())
+
             # 관계 타입별로 prop key / type
             for prop_key, neo4j_val in rel.properties.items():
                 prop_type_name: str = get_neo4j_property_type_name(neo4j_val)
                 rel_props_dict[rel.rel_type].add((prop_key, prop_type_name))
 
-            relationships_list.append(
-                {
-                    "start": rel.start_node.safe_labelstring,
-                    "type": rel.rel_type,
-                    "end": rel.end_node.safe_labelstring,
-                }
+            relationships.add(
+                (
+                    rel.start_node.safe_labelstring,
+                    rel.rel_type,
+                    rel.end_node.safe_labelstring,
+                )
             )
 
         # 3) Neo4jConnection의 query 결과 형태에 맞춰 변환
@@ -317,7 +319,14 @@ class Graph:
         graph_schema: GraphSchema = {
             "node_props": node_props,
             "rel_props": rel_props,
-            "relationships": relationships_list,
+            "relationships": [
+                {
+                    "start": start,
+                    "type": rtype,
+                    "end": end,
+                }
+                for (start, rtype, end) in sorted(relationships)
+            ],
             "metadata": {
                 "constraint": [],
                 "index": [],
